@@ -1,0 +1,4 @@
+tests/
+dsigdE_tables/
+src/__pycache__/
+example/.ipynb_checkpoints/
