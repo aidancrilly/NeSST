@@ -4,6 +4,7 @@
 
 # Standard libraries
 import numpy as np
+from pathlib import Path
 from scipy.interpolate import interp1d
 from scipy.interpolate import interp2d
 from scipy.optimize import curve_fit
@@ -265,6 +266,11 @@ class dsigdE_table:
 
     def matrix_create_and_save(self,Ein,Eout,vvec,P1):
 
+        self.Ein  = Ein
+        self.Eout = Eout
+        self.vvec = vvec
+        self.P1   = P1
+
         np.savetxt(self.filedir / "Ein.dat",Ein)
         np.savetxt(self.filedir / "Eout.dat",Eout)
         np.savetxt(self.filedir / "vvec.dat",vvec)
@@ -273,9 +279,11 @@ class dsigdE_table:
         EEo,vv,EEi = np.meshgrid(Eout,vvec,Ein,indexing='ij')
         integral   = self.integrand_tabular(EEi,EEo,1.0,vv,P1,Ein)
 
-        np.save(self.filedir / "dsigdE_table",integral.m)
+        self.M_full = integral
 
-    def matrix_load(self,frac_i):
+        np.save(self.filedir / (self.reac_type + "-dsigdE_table"),integral)
+
+    def matrix_load(self):
 
         # Load vectors
         Ein_load  = np.loadtxt(self.filedir / "Ein.dat")
@@ -288,10 +296,10 @@ class dsigdE_table:
         self.vvec = vvec_load
         self.P1   = P1_load
 
-        M_load = np.load(self.filedir / "dsigdE_table.npy")
+        M_load = np.load(self.filedir / (self.reac_type + "-dsigdE_table.npy"))
 
         # Load matrix
-        self.M_full = frac_i*M_load
+        self.M_full = M_load
 
     # Integrate out the birth neutron spectrum
     def matrix_primspec_int(self,I_E):
