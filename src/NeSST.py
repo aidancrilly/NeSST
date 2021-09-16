@@ -21,8 +21,8 @@ from Constants import *
 # Global variable defaults
 col.classical_collisions = False
 # Atomic fraction of D and T in scattering medium and source
-frac_D = 0.5
-frac_T = 0.5
+frac_D_default = 0.5
+frac_T_default = 0.5
 # Set to True to calculate double scatters, set to False to not
 # Note double scatter model assumes isotropic areal density for scattered neutrons - this is usually a poor approx.
 DS_switch = False
@@ -45,7 +45,7 @@ def Qballabio(Ein,mean,variance):
 def dNdE_TT(E,Tion):
     return sm.TT_2dinterp(E,Tion)
 
-def yield_from_dt_yield_ratio(reaction,dt_yield,Ti):
+def yield_from_dt_yield_ratio(reaction,dt_yield,Ti,frac_D=frac_D_default,frac_T=frac_T_default):
     ''' Reactivity ratio to predict yield from the DT yield assuming same volume and burn time
         rate_ij = (f_{i}*f_{j}*sigmav_{i,j}(T))/(1+delta_{i,j})  # dN/dVdt
         yield_ij = (rate_ij/rate_dt)*yield_dt
@@ -131,16 +131,40 @@ def DDprimspecmoments(Tion):
 
     return mean, variance
 
-##################################
-#   Symmetric Scattered Spectra  #
-##################################
+#######################################
+# DT scattered spectra initialisation #
+#######################################
 
-def sym_scatter_spec(E_full_arr,Ein,I_E):
-    sm.init_n2n_ddxs(E_full_arr,Ein,I_E)
-    nT   = frac_T*sm.nTspec(E_full_arr,Ein,I_E,A_T)
-    nD   = frac_D*sm.nDspec(E_full_arr,Ein,I_E,A_D)
-    Dn2n = frac_D*sm.Dn2n_ddx.dNdE_sym
-    Tn2n = frac_T*sm.Tn2n_ddx.dNdE_sym
+def init_DT_scatter(Eout,Ein):
+    sm.mat_D.init_station_scatter_matrices(Eout,Ein)
+    sm.mat_T.init_station_scatter_matrices(Eout,Ein)
+
+###########################################
+#   Single Evalutation Scattered Spectra  #
+###########################################
+
+def sym_scatter_spec(I_E,frac_D=frac_D_default,frac_T=frac_T_default):
+    rhoL_func = lambda x : np.ones_like(x)
+    sm.mat_D.calc_station_elastic_dNdE(I_E,rhoL_func)
+    sm.mat_T.calc_station_elastic_dNdE(I_E,rhoL_func)
+    sm.mat_D.calc_n2n_dNdE(I_E,rhoL_func)
+    sm.mat_T.calc_n2n_dNdE(I_E,rhoL_func)
+    nT   = frac_T*sm.mat_T.elastic_dNdE
+    nD   = frac_D*sm.mat_D.elastic_dNdE
+    Dn2n = frac_D*sm.mat_T.n2n_dNdE
+    Tn2n = frac_T*sm.mat_D.n2n_dNdE
+    total = nD+nT+Dn2n+Tn2n
+    return total,(nD,nT,Dn2n,Tn2n)
+
+def asym_scatter_spec(I_E,rhoL_func,frac_D=frac_D_default,frac_T=frac_T_default):
+    sm.mat_D.calc_station_elastic_dNdE(I_E,rhoL_func)
+    sm.mat_T.calc_station_elastic_dNdE(I_E,rhoL_func)
+    sm.mat_D.calc_n2n_dNdE(I_E,rhoL_func)
+    sm.mat_T.calc_n2n_dNdE(I_E,rhoL_func)
+    nT   = frac_T*sm.mat_T.elastic_dNdE
+    nD   = frac_D*sm.mat_D.elastic_dNdE
+    Dn2n = frac_D*sm.mat_T.n2n_dNdE
+    Tn2n = frac_T*sm.mat_D.n2n_dNdE
     total = nD+nT+Dn2n+Tn2n
     return total,(nD,nT,Dn2n,Tn2n)
 
@@ -149,7 +173,7 @@ def sym_scatter_spec(E_full_arr,Ein,I_E):
 ##################################
 # These will be tidied 
 
-def calc_all_splines(E_full_arr,Ein,I_E,P1):
+def calc_all_splines(E_full_arr,Ein,I_E,P1,frac_D=frac_D_default,frac_T=frac_T_default):
     # DT scattering 
     sm.init_n2n_ddxs_mode1(E_full_arr,Ein,I_E,P1)
     Tn2nspline   = interp2d(E_full_arr,P1,frac_T*sm.Tn2n_ddx.rgrid_P1.T,bounds_error=False,fill_value=0.0)
@@ -158,7 +182,7 @@ def calc_all_splines(E_full_arr,Ein,I_E,P1):
     nDspline     = interp2d(E_full_arr,P1,frac_D*sm.nDspec(E_full_arr,Ein,I_E,A_D,P1).T,bounds_error=False,fill_value=0.0)
     return nTspline,nDspline,Dn2nspline,Tn2nspline
 
-def calc_splines_w_TT(E_full_arr,Ein,I_E,P1,Tion):
+def calc_splines_w_TT(E_full_arr,Ein,I_E,P1,Tion,frac_D=frac_D_default,frac_T=frac_T_default):
     # TT primaries (note this is area normalized)
     I_TT         = sm.TT_2dinterp(E_full_arr,Tion)
     TT_spline    = interp1d(E_full_arr,I_TT)
@@ -174,7 +198,7 @@ def calc_splines_w_TT(E_full_arr,Ein,I_E,P1,Tion):
     TT_1Sspline  = interp1d(E_full_arr,I_TT_1S,bounds_error=False,fill_value=0.0)
     return (nDspline,n2nspline,TT_spline,TT_1Sspline)
 
-def calc_all_splines_w_TT(E_full_arr,Ein,I_E,P1,Tion):
+def calc_all_splines_w_TT(E_full_arr,Ein,I_E,P1,Tion,frac_D=frac_D_default,frac_T=frac_T_default):
     # TT primaries (note this is area normalized)
     I_TT         = sm.TT_2dinterp(E_full_arr,Tion)
     TT_spline    = interp1d(E_full_arr,I_TT)
@@ -192,7 +216,7 @@ def calc_all_splines_w_TT(E_full_arr,Ein,I_E,P1,Tion):
     TT_1Sspline  = interp1d(E_full_arr,I_TT_1S,bounds_error=False,fill_value=0.0)
     return (nTspline,nDspline,Dn2nspline,Tn2nspline,TT_spline,TT_1Sspline)
 
-def calc_all_splines_w_DD(E_full_arr,Ein,I_DT,I_DD,P1,Tion):
+def calc_all_splines_w_DD(E_full_arr,Ein,I_DT,I_DD,P1,Tion,frac_D=frac_D_default,frac_T=frac_T_default):
     # TT and DD primaries
     I_TT         = sm.TT_2dinterp(E_full_arr,Tion)
     TT_2_DT_reac = yield_from_dt_yield_ratio('tt',1.0,Tion)
@@ -209,7 +233,7 @@ def calc_all_splines_w_DD(E_full_arr,Ein,I_DT,I_DD,P1,Tion):
     I_1S_nD   = interp2d(E_full_arr,P1,frac_D*sm.nDspec(E_full_arr,E_full_arr,TT_2_DT_reac*I_TT+DD_2_DT_reac*I_DD,A_D,P1).T,bounds_error=False,fill_value=0.0)
     return (nTspline,nDspline,Tn2nspline,Dn2nspline,prim_spline,I_1S_nT,I_1S_nD)
 
-def calc_splines_w_DD(E_full_arr,Ein,I_DT,I_DD,P1,Tion):
+def calc_splines_w_DD(E_full_arr,Ein,I_DT,I_DD,P1,Tion,frac_D=frac_D_default,frac_T=frac_T_default):
     # TT and DD primaries
     I_TT         = sm.TT_2dinterp(E_full_arr,Tion)
     TT_2_DT_reac = yield_from_dt_yield_ratio('tt',1.0,Tion)
@@ -247,12 +271,12 @@ class dsigdE_table:
         # Choose this way round so vf is +ve if shell coming TOWARDS detector
         vf    = -vf
         if  (self.reac_type == "nT"):
-            A = A_T
+            A = Mt/Mn
         elif(self.reac_type == "nD"):
-            A = A_D
+            A = Md/Mn
         else:
             # print('WARNING: Unkown reaction type %s, setting edge to zeros'%self.reac_type)
-            return np.zeros(np.shape(col.mu_out(A_T,Ein,Eout,vf)))
+            return np.zeros(np.shape(col.mu_out(Mt/Mn,Ein,Eout,vf)))
         muout = col.mu_out(A,Ein,Eout,vf)
         jacob = col.g(A,Ein,Eout,muin,muout,vf)
         flux_change = col.flux_change(Ein,muin,vf)
@@ -320,9 +344,9 @@ def integrand(Ein,Eout,muin,vf,Ein_vec,I_E,reac_type):
     # Choose this way round so vf is +ve if shell coming TOWARDS detector
     vf    = -vf
     if  (reac_type == "nT"):
-        A = A_T
+        A = sm.A_T
     elif(reac_type == "nD"):
-        A = A_D
+        A = sm.A_D
     else:
         # print('WARNING: Unkown reaction type %s, setting edge to zeros'%reac_type)
         return np.zeros(np.shape(col.mu_out(A_T,Ein,Eout,vf)))
@@ -340,15 +364,8 @@ def matrix_calc(E,v,Ein,I_E,reac_type):
     # v. Note this takes care of the integration with the primary source spectrum I_E
     vv,EEo,EEi = np.meshgrid(v,E,Ein)
     integral   = integrand(EEi,EEo,1.0,vv,Ein,I_E,reac_type)
-    if  (reac_type == "nT"):
-        frac_A = frac_T
-    elif(reac_type == "nD"):
-        frac_A = frac_D
-    else:
-        # print('WARNING: Unkown reaction type %s, setting edge to zeros'%reac_type)
-        return np.zeros(np.shape(np.trapz(integral,Ein,axis=-1) ))
     # Integrate the source spectrum component
-    M          = frac_A*np.trapz(integral,Ein,axis=-1)
+    M          = np.trapz(integral,Ein,axis=-1)
     return M
 
 # Perform 1D linear interpolation in energy space and integrate over Gaussian in velocity space
@@ -403,23 +420,23 @@ def generate_single_velocity_spectrum(M,E,v_bar,v_arr,E_arr):
 # Full model fitting function #
 ###############################
 
-def calc_sigmabar(Ein,I_E):
-    sigmabar = frac_D*np.trapz(sm.sigma_D_tot(Ein)*I_E,Ein)+frac_T*np.trapz(sm.sigma_T_tot(Ein)*I_E,Ein)
+def calc_DT_sigmabar(Ein,I_E,frac_D=frac_D_default,frac_T=frac_T_default):
+    sigmabar = frac_D*np.trapz(sm.mat_D.sigma_tot(Ein)*I_E,Ein)+frac_T*np.trapz(sm.mat_T.sigma_tot(Ein)*I_E,Ein)
     return sigmabar
 
-def rhoR_2_A1s(rhoR):
+def rhoR_2_A1s(rhoR,frac_D=frac_D_default,frac_T=frac_T_default):
     # Mass of neutron in milligrams
     mn_mg = 1.674927485e-21
-    mbar  = (frac_D*A_D+frac_T*A_T)*mn_mg
+    mbar  = (frac_D*sm.A_D+frac_T*sm.A_T)*mn_mg
     # barns to cm^2
     sigmabarn = 1e-24
     A_1S = rhoR*(sigmabarn/mbar)
     return A_1S
 
-def A1s_2_rhoR(A_1S):
+def A1s_2_rhoR(A_1S,frac_D=frac_D_default,frac_T=frac_T_default):
     # Mass of neutron in milligrams
     mn_mg = 1.674927485e-21
-    mbar  = (frac_D*A_D+frac_T*A_T)*mn_mg
+    mbar  = (frac_D*sm.A_D+frac_T*sm.A_T)*mn_mg
     # barns to cm^2
     sigmabarn = 1e-24
     rhoR = A_1S/(sigmabarn/mbar)

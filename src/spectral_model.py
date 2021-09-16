@@ -32,13 +32,6 @@ def interp_Tlcoeff(dx_spline,E_vec):
         Tlcoeff[:,i] = dx_spline[i](E_vec)
     return Tlcoeff,NTl
 
-# Cross section
-def sigma(Ein_vec,reac_type):
-    if(reac_type == "nD"):
-        return sigma_nD(Ein_vec)
-    elif(reac_type == "nT"):
-        return sigma_nT(Ein_vec)
-
 # Evaluate the differential cross section by combining legendre and cross section
 # See https://t2.lanl.gov/nis/endf/intro20.html
 def diffxsec_legendre_eval(sig,mu,coeff):
@@ -55,11 +48,19 @@ def diffxsec_legendre_eval(sig,mu,coeff):
 
 # CoM frame differential cross section wrapper fucntion
 def f_dsdO(Ein_vec,mu,reac_type):
-    E_vec = 1e6*Ein_vec
-    NE    = len(E_vec)
-    Tlcoeff_interp,Nl = interp_Tlcoeff(reac_type,E_vec)
+
+    if(reac_type == 'nD'):
+        dx_spline = mat_D.dx_spline
+    elif(reac_type == 'nT'):
+        dx_spline = mat_T.dx_spline
+    Tlcoeff_interp,Nl = interp_Tlcoeff(dx_spline,Ein_vec)
     Tlcoeff_interp    = 0.5*(2*np.arange(0,Nl)+1)*Tlcoeff_interp
-    sig = sigma(Ein_vec,reac_type)
+
+    if(reac_type == 'nD'):
+        sig = mat_D.sigma(Ein_vec)
+    elif(reac_type == 'nT'):
+        sig = mat_T.sigma(Ein_vec)
+
     dsdO = diffxsec_legendre_eval(sig,mu,Tlcoeff_interp)
     return dsdO
 
@@ -354,7 +355,7 @@ class doubledifferentialcrosssection_LAW6:
 # A values needed for scattering kinematics
 A_D  = Md/Mn
 A_T  = Mt/Mn
-A_C  = Mc/Mn
+A_C  = MC/Mn
 A_Be = MBe/Mn
 
 def unity(x):
@@ -366,7 +367,7 @@ class material_data:
         self.label = label
         if(self.label == 'D'):
             self.A = A_D
-            elastic_xsec_file  = 
+            elastic_xsec_file  = xsec_dir + "ENDF_H2(n,elastic)_xsec.dat"
             elastic_dxsec_file = xsec_dir + "ENDF_H2(n,elastic)_dx.dat"
 
             self.l_n2n         = True
@@ -378,7 +379,7 @@ class material_data:
             tot_xsec_file      = xsec_dir + "tot_D_xsec.dat"
         elif(self.label == 'T'):
             self.A = A_T
-            elastic_xsec_file  = 
+            elastic_xsec_file  = xsec_dir + "ENDF_H3(n,elastic)_xsec.dat"
             elastic_dxsec_file = xsec_dir + "ENDF_H3(n,elastic)_dx.dat"
 
             self.l_n2n         = True
@@ -391,13 +392,13 @@ class material_data:
         else:
             print("Material label "+self.label+" not recognised")
 
-        elastic_xsec_data = np.loadtxt(elastic_xsec_file)
-        self.sigma = interp1d(elastic_xsec_data[:,0],elastic_xsec_data[:,1]*1e28,kind='linear',bounds_error=False,fill_value=0.0)
+        elastic_xsec_data = self.read_ENDF_xsec_file(elastic_xsec_file)
+        self.sigma = interp1d(elastic_xsec_data[:,0],elastic_xsec_data[:,1],kind='linear',bounds_error=False,fill_value=0.0)
 
         dx_data = np.loadtxt(elastic_dxsec_file,skiprows = 6)
         self.dx_spline = [unity]
         for i in range(1,dx_data.shape[1]):
-            self.dx_spline.append(interp1d(dx_data[:,0],dx_data[:,i],kind='linear',bounds_error=False,fill_value=0.0))
+            self.dx_spline.append(interp1d(dx_data[:,0]/1e6,dx_data[:,i],kind='linear',bounds_error=False,fill_value=0.0))
 
         tot_xsec_data = np.loadtxt(tot_xsec_file)
         self.sigma_tot = interp1d(tot_xsec_data[:,0],tot_xsec_data[:,1]*1e28,kind='linear',bounds_error=False,fill_value=0.0)
@@ -408,6 +409,19 @@ class material_data:
             elif(n2n_type == 1):
                 self.n2n_ddx = doubledifferentialcrosssection_data(n2n_xsec_file,n2n_dxsec_file,True)
 
+    def read_ENDF_xsec_file(self,xsec_file):
+        with open(xsec_file,"r") as f:
+            file = f.read()
+            # Read number of points
+            NEin_xsec = int(file.split()[0])
+            elastic_xsec_data = np.zeros((NEin_xsec,2))
+            data = "".join(file.split("\n")[5:]).split()
+            E = data[::2]
+            x = data[1::2]
+            for i in range(NEin_xsec):
+                elastic_xsec_data[i,0] = ENDF_format(E[i])/1e6
+                elastic_xsec_data[i,1] = ENDF_format(x[i])
+        return elastic_xsec_data
 
     ############################################
     # Stationary ion scattered spectral shapes #
@@ -425,27 +439,26 @@ class material_data:
         Ei,Eo  = np.meshgrid(Ein,Eout)
         muc    = col.muc(self.A,Ei,Eo,1.0,-1.0,0.0)
         sigma  = self.sigma(Ein)
-        E_vec  = 1e6*Ein
-        Tlcoeff,Nl     = interp_Tlcoeff(self.dx_spline,E_vec)
+        Tlcoeff,Nl     = interp_Tlcoeff(self.dx_spline,Ein)
         Tlcoeff_interp = 0.5*(2*np.arange(0,Nl)+1)*Tlcoeff
         self.elastic_mu0 = col.mu_out(self.A,Ei,Eo,0.0)
         dsdO = diffxsec_legendre_eval(sigma,muc,Tlcoeff_interp)
         jacob = col.g(self.A,Ei,Eo,1.0,-1.0,0.0)
         self.elastic_dNdEdmu = jacob*dsdO
 
-    def init_n2n_ddxs(Eout,Ein,Nm=100):
+    def init_n2n_ddxs(self,Eout,Ein,Nm=100):
         self.n2n_mu = np.linspace(-1.0,1.0,Nm)
         self.n2n_ddx.regular_grid(Ein,self.n2n_mu,Eout)
 
     # Spectrum produced by scattering of incoming isotropic neutron source I_E with normalised areal density asymmetry rhoR_asym_func
-    def station_elastic_dNdE(self,I_E,rhoL_func):
+    def calc_station_elastic_dNdE(self,I_E,rhoL_func):
         rhoL_asym = rhoL_func(self.elastic_mu0)
         self.elastic_dNdE = np.trapz(self.elastic_dNdEdmu*rhoL_asym*I_E[None,:],self.Ein,axis=1)
 
-    def n2n_dNdE(self,I_E,rhoL_func):
+    def calc_n2n_dNdE(self,I_E,rhoL_func):
         rhoL_asym = rhoL_func(self.n2n_mu)
         grid_dNdE = np.trapz(self.n2n_ddx.rgrid*rhoL_asym[None,:,None],self.n2n_mu,axis=1)
-        self.n2n_dNdE = np.trapz(I_E[:,None]*grid_dNdE,Ein,axis=0)
+        self.n2n_dNdE = np.trapz(I_E[:,None]*grid_dNdE,self.Ein,axis=0)
 
     # # Spectrum produced by scattering of incoming neutron source with anisotropic birth spectrum
     # def elastic_scatter_aniso(self,Eout,Ein,mean_iso,mean_aniso,var_iso,b_spec,rhoR_asym_func):
@@ -463,6 +476,11 @@ class material_data:
     #     jacob = col.g(self.A,Ei,Eo,1.0,-1.0,0.0)
     #     res = np.trapz(jacob*dsdO*I_E_aniso*rhoR_asym,Ein,axis=-1)
     #     return res
+
+
+# Default load D and T
+mat_D = material_data('D')
+mat_T = material_data('T')
 
 # Load in TT spectrum
 # Based on Appelbe, stationary emitter, temperature range between 1 and 10 keV
