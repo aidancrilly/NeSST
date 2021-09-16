@@ -12,12 +12,12 @@ Total and differential cross sections for elastic and inelastic processes are us
 - Elastic and inelastic (n,2n) processes for D and T
 - Relativistic corrections to elastic scattering kernels
 - Scattering of all primary neutron sources
-- Inclusion of mode 1 asymmetry effect
+- Inclusion of areal density asymmetry effects
 - Backscatter edge shape effects from scattering ion kinematics
 
 ## Future model developments:
-- More general areal density treatment
 - Offline table support for backscatter edge matrix
+- Ablator scattering support (C, CH, Be)
 
 The models used in this code are described in the following publications:
 
