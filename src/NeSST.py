@@ -20,9 +20,6 @@ from Constants import *
 
 # Global variable defaults
 col.classical_collisions = False
-# A values needed for scattering kinematics
-A_D = Md/Mn
-A_T = Mt/Mn
 # Atomic fraction of D and T in scattering medium and source
 frac_D = 0.5
 frac_T = 0.5

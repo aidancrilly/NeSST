@@ -6,6 +6,7 @@ from scipy.interpolate import interp1d
 from scipy.interpolate import interp2d
 import os
 import collisions as col
+from Constants import *
 
 #################################
 # Loading in cross section data #
@@ -22,22 +23,13 @@ xsec_dir = os.path.join(package_directory,"../data/")
 
 # Interpolate the legendre coefficients (a_l) of the differential cross section
 # See https://t2.lanl.gov/nis/endf/intro20.html
-def interp_Tlcoeff(reac_type,E_vec):
+def interp_Tlcoeff(dx_spline,E_vec):
     size = [E_vec.shape[0]]
-    if(reac_type == "nD"):
-        NTl = len(nD_dx_spline)
-        size.append(NTl)
-        Tlcoeff = np.zeros(size)
-        for i in range(NTl):
-            Tlcoeff[:,i] = nD_dx_spline[i](E_vec)
-    elif(reac_type == "nT"):
-        NTl = len(nT_dx_spline)
-        size.append(NTl)
-        Tlcoeff = np.zeros(size)
-        for i in range(NTl):
-            Tlcoeff[:,i] = nT_dx_spline[i](E_vec)
-    else:
-        print('WARNING: reac_type != nD or nT in interp_Tlcoeff function')
+    NTl = len(dx_spline)
+    size.append(NTl)
+    Tlcoeff = np.zeros(size)
+    for i in range(NTl):
+        Tlcoeff[:,i] = dx_spline[i](E_vec)
     return Tlcoeff,NTl
 
 # Cross section
@@ -355,47 +347,122 @@ class doubledifferentialcrosssection_LAW6:
         Ei,Mm,Eo = np.meshgrid(Ein,mu,Eout,indexing='ij')
         self.rgrid = 2.*self.xsec_interp(Ei)*self.ddx(Ei,Mm,Eo)
 
-# Cross sections
-nDnT_xsec_data = np.loadtxt(xsec_dir + "nDnT_xsec.dat")
-sigma_nD = interp1d(nDnT_xsec_data[:,0],nDnT_xsec_data[:,1]*1e28,kind='linear',bounds_error=False,fill_value=0.0)
-sigma_nT = interp1d(nDnT_xsec_data[:,0],nDnT_xsec_data[:,2]*1e28,kind='linear',bounds_error=False,fill_value=0.0)
+##################
+# Material class #
+##################
 
-# Differential cross sections
+# A values needed for scattering kinematics
+A_D  = Md/Mn
+A_T  = Mt/Mn
+A_C  = Mc/Mn
+A_Be = MBe/Mn
+
 def unity(x):
     return np.ones_like(x)
-# Elastic nD scattering
-nD_dx_data = np.loadtxt(xsec_dir + "ENDF_H2(n,elastic)_dx.dat",skiprows = 6)
-nD_dx_spline = [unity]
-for i in range(1,nD_dx_data.shape[1]):
-    nD_dx_spline.append(interp1d(nD_dx_data[:,0],nD_dx_data[:,i],kind='linear',bounds_error=False,fill_value=0.0))
-# Elastic nT scattering
-nT_dx_data = np.loadtxt(xsec_dir + "ENDF_H3(n,elastic)_dx.dat",skiprows = 6)
-nT_dx_spline = [unity]
-for i in range(1,nT_dx_data.shape[1]):
-    nT_dx_spline.append(interp1d(nT_dx_data[:,0],nT_dx_data[:,i],kind='linear',bounds_error=False,fill_value=0.0))
 
-# Total cross sections
-tot_xsec_data = np.loadtxt(xsec_dir + "tot_D_xsec.dat")
-sigma_D_tot = interp1d(tot_xsec_data[:,0],tot_xsec_data[:,1]*1e28,kind='linear',bounds_error=False,fill_value=0.0)
-tot_xsec_data = np.loadtxt(xsec_dir + "tot_T_xsec.dat")
-sigma_T_tot = interp1d(tot_xsec_data[:,0],tot_xsec_data[:,1]*1e28,kind='linear',bounds_error=False,fill_value=0.0)
+class material_data:
 
-Dn2n_ddx = doubledifferentialcrosssection_data(xsec_dir + "CENDL_d(n,2n)_xsec.dat",xsec_dir + "CENDL_d(n,2n)_ddx.dat",True)
-Tn2n_ddx = doubledifferentialcrosssection_LAW6(xsec_dir + "ENDF_t(n,2n)_xsec.dat",1.0e0,1.0e0,2.990140e0,1.0e0,3.996800e0,-6.25756e0)
+    def __init__(self,label):
+        self.label = label
+        if(self.label == 'D'):
+            self.A = A_D
+            elastic_xsec_file  = 
+            elastic_dxsec_file = xsec_dir + "ENDF_H2(n,elastic)_dx.dat"
 
-##############################################################################
-# Deprecated n2n matrix representation
-E1_n2n = np.linspace(13,15,100)
-E2_n2n = np.linspace(1.0,13,500)
-Dn2n_matrix = np.loadtxt(xsec_dir + "Dn2n_matrix.dat")
-Tn2n_matrix_1 = np.loadtxt(xsec_dir + "Tn2n_matrix_ENDFLAW6.dat")
-Tn2n_matrix_2 = np.loadtxt(xsec_dir + "Tn2n_matrix_CENDL_transform.dat")
-# 2D interpolation functions
-Dn2n_2dinterp = interp2d(E1_n2n,E2_n2n,Dn2n_matrix.T,kind='linear',bounds_error=False,fill_value=0.0)
-Tn2n_1_2dinterp = interp2d(E1_n2n,E2_n2n,Tn2n_matrix_1.T,kind='linear',bounds_error=False,fill_value=0.0)
-Tn2n_2_2dinterp = interp2d(E1_n2n,E2_n2n,Tn2n_matrix_2.T,kind='linear',bounds_error=False,fill_value=0.0)
-# Deprecated n2n matrix representation
-############################################################################
+            self.l_n2n         = True
+            n2n_type           = 1
+            n2n_xsec_file      = xsec_dir + "CENDL_d(n,2n)_xsec.dat"
+            n2n_dxsec_file     = xsec_dir + "CENDL_d(n,2n)_ddx.dat"
+            n2n_params         = None
+
+            tot_xsec_file      = xsec_dir + "tot_D_xsec.dat"
+        elif(self.label == 'T'):
+            self.A = A_T
+            elastic_xsec_file  = 
+            elastic_dxsec_file = xsec_dir + "ENDF_H3(n,elastic)_dx.dat"
+
+            self.l_n2n         = True
+            n2n_type           = 0
+            n2n_xsec_file      = xsec_dir + "ENDF_t(n,2n)_xsec.dat"
+            n2n_dxsec_file     = None
+            n2n_params         = [1.0e0,1.0e0,2.990140e0,1.0e0,3.996800e0,-6.25756e0]
+
+            tot_xsec_file      = xsec_dir + "tot_T_xsec.dat"
+        else:
+            print("Material label "+self.label+" not recognised")
+
+        elastic_xsec_data = np.loadtxt(elastic_xsec_file)
+        self.sigma = interp1d(elastic_xsec_data[:,0],elastic_xsec_data[:,1]*1e28,kind='linear',bounds_error=False,fill_value=0.0)
+
+        dx_data = np.loadtxt(elastic_dxsec_file,skiprows = 6)
+        self.dx_spline = [unity]
+        for i in range(1,dx_data.shape[1]):
+            self.dx_spline.append(interp1d(dx_data[:,0],dx_data[:,i],kind='linear',bounds_error=False,fill_value=0.0))
+
+        tot_xsec_data = np.loadtxt(tot_xsec_file)
+        self.sigma_tot = interp1d(tot_xsec_data[:,0],tot_xsec_data[:,1]*1e28,kind='linear',bounds_error=False,fill_value=0.0)
+
+        if(self.l_n2n):
+            if(n2n_type == 0):
+                self.n2n_ddx = doubledifferentialcrosssection_LAW6(n2n_xsec_file,*n2n_params)
+            elif(n2n_type == 1):
+                self.n2n_ddx = doubledifferentialcrosssection_data(n2n_xsec_file,n2n_dxsec_file,True)
+
+
+    ############################################
+    # Stationary ion scattered spectral shapes #
+    ############################################
+
+    def init_station_scatter_matrices(self,Eout,Ein,Nm=100):
+        self.Eout = Eout
+        self.Ein  = Ein
+        self.init_station_elastic_scatter(Eout,Ein)
+        if(self.l_n2n):
+            self.init_n2n_ddxs(Eout,Ein,Nm)
+
+    # Elastic scatter matrix
+    def init_station_elastic_scatter(self,Eout,Ein):
+        Ei,Eo  = np.meshgrid(Ein,Eout)
+        muc    = col.muc(self.A,Ei,Eo,1.0,-1.0,0.0)
+        sigma  = self.sigma(Ein)
+        E_vec  = 1e6*Ein
+        Tlcoeff,Nl     = interp_Tlcoeff(self.dx_spline,E_vec)
+        Tlcoeff_interp = 0.5*(2*np.arange(0,Nl)+1)*Tlcoeff
+        self.elastic_mu0 = col.mu_out(self.A,Ei,Eo,0.0)
+        dsdO = diffxsec_legendre_eval(sigma,muc,Tlcoeff_interp)
+        jacob = col.g(self.A,Ei,Eo,1.0,-1.0,0.0)
+        self.elastic_dNdEdmu = jacob*dsdO
+
+    def init_n2n_ddxs(Eout,Ein,Nm=100):
+        self.n2n_mu = np.linspace(-1.0,1.0,Nm)
+        self.n2n_ddx.regular_grid(Ein,self.n2n_mu,Eout)
+
+    # Spectrum produced by scattering of incoming isotropic neutron source I_E with normalised areal density asymmetry rhoR_asym_func
+    def station_elastic_dNdE(self,I_E,rhoL_func):
+        rhoL_asym = rhoL_func(self.elastic_mu0)
+        self.elastic_dNdE = np.trapz(self.elastic_dNdEdmu*rhoL_asym*I_E[None,:],self.Ein,axis=1)
+
+    def n2n_dNdE(self,I_E,rhoL_func):
+        rhoL_asym = rhoL_func(self.n2n_mu)
+        grid_dNdE = np.trapz(self.n2n_ddx.rgrid*rhoL_asym[None,:,None],self.n2n_mu,axis=1)
+        self.n2n_dNdE = np.trapz(I_E[:,None]*grid_dNdE,Ein,axis=0)
+
+    # # Spectrum produced by scattering of incoming neutron source with anisotropic birth spectrum
+    # def elastic_scatter_aniso(self,Eout,Ein,mean_iso,mean_aniso,var_iso,b_spec,rhoR_asym_func):
+    #     Ei,Eo  = np.meshgrid(Ein,Eout)
+    #     muc    = col.muc(self.A,Ei,Eo,1.0,-1.0,0.0)
+    #     sigma  = sigma_nT(Ein)
+    #     E_vec  = 1e6*Ein
+    #     Tlcoeff,Nl     = interp_Tlcoeff(self.dx_spline,E_vec)
+    #     Tlcoeff_interp = 0.5*(2*np.arange(0,Nl)+1)*Tlcoeff
+    #     mu0 = col.mu_out(self.A,Ei,Eo,0.0)
+    #     rhoR_asym = rhoR_asym_func(mu0)
+    #     prim_mean = mean_iso+mean_aniso*mu0
+    #     I_E_aniso = b_spec(Ei,prim_mean,var_iso)
+    #     dsdO = diffxsec_legendre_eval(sigma,muc,Tlcoeff_interp)
+    #     jacob = col.g(self.A,Ei,Eo,1.0,-1.0,0.0)
+    #     res = np.trapz(jacob*dsdO*I_E_aniso*rhoR_asym,Ein,axis=-1)
+    #     return res
 
 # Load in TT spectrum
 # Based on Appelbe, stationary emitter, temperature range between 1 and 10 keV
@@ -433,97 +500,16 @@ def reac_DD(Ti):
 def reac_TT(Ti):
     return TT_reac_spline(Ti)
 
-############################################
-# Stationary ion scattered spectral shapes #
-############################################
-
-# Spectrum produced by scattering of incoming isotropic neutron source I_E by tritium
-def nTspec(Eout,Ein,I_E,A_T,P1_mag = 0.0):
-    Ei,Eo  = np.meshgrid(Ein,Eout)
-    muc    = col.muc(A_T,Ei,Eo,1.0,-1.0,0.0)
-    sigma  = sigma_nT(Ein)
-    E_vec  = 1e6*Ein
-    Tlcoeff,Nl     = interp_Tlcoeff("nT",E_vec)
-    Tlcoeff_interp = 0.5*(2*np.arange(0,Nl)+1)*Tlcoeff
-    mu0 = col.mu_out(A_T,Ei,Eo,0.0)
-    dsdO = diffxsec_legendre_eval(sigma,muc,Tlcoeff_interp)
-    jacob = col.g(A_T,Ei,Eo,1.0,-1.0,0.0)
-    if(np.isscalar(P1_mag)):
-        rhoR_asym = 1.0+P1_mag*mu0
-        res = np.trapz(jacob*dsdO*I_E*rhoR_asym,Ein,axis=-1)
-    else:
-        rhoR_asym = 1.0+P1_mag[None,None,:]*mu0[:,:,None]
-        res = np.trapz(jacob[:,:,None]*dsdO[:,:,None]*I_E[None,:,None]*rhoR_asym,Ein,axis=1)
-    return res
-
-# Spectrum produced by scattering of incoming isotropic neutron source I_E by deuterium
-def nDspec(Eout,Ein,I_E,A_D,P1_mag = 0.0):
-    Ei,Eo  = np.meshgrid(Ein,Eout)
-    muc    = col.muc(A_D,Ei,Eo,1.0,-1.0,0.0)
-    sigma  = sigma_nD(Ein)
-    E_vec  = 1e6*Ein
-    Tlcoeff,Nl     = interp_Tlcoeff("nD",E_vec)
-    Tlcoeff_interp = 0.5*(2*np.arange(0,Nl)+1)*Tlcoeff
-    mu0 = col.mu_out(A_D,Ei,Eo,0.0)
-    dsdO = diffxsec_legendre_eval(sigma,muc,Tlcoeff_interp)
-    jacob = col.g(A_D,Ei,Eo,1.0,-1.0,0.0)
-    if(np.isscalar(P1_mag)):
-        rhoR_asym = 1.0+P1_mag*mu0
-        res = np.trapz(jacob*dsdO*I_E*rhoR_asym,Ein,axis=-1)
-    else:
-        rhoR_asym = 1.0+P1_mag[None,None,:]*mu0[:,:,None]
-        res = np.trapz(jacob[:,:,None]*dsdO[:,:,None]*I_E[None,:,None]*rhoR_asym,Ein,axis=1)
-    return res
-
-# nT spectrum produced by scattering of incoming neutron source with anisotropic birth spectrum
-def nTspec_aniso(Eout,Ein,mean_iso,mean_aniso,var_iso,b_spec,A_T,P1_mag):
-    Ei,Eo  = np.meshgrid(Ein,Eout)
-    muc    = col.muc(A_T,Ei,Eo,1.0,-1.0,0.0)
-    sigma  = sigma_nT(Ein)
-    E_vec  = 1e6*Ein
-    Tlcoeff,Nl     = interp_Tlcoeff("nT",E_vec)
-    Tlcoeff_interp = 0.5*(2*np.arange(0,Nl)+1)*Tlcoeff
-    mu0 = col.mu_out(A_T,Ei,Eo,0.0)
-    rhoR_asym = 1.0+P1_mag*mu0
-    prim_mean = mean_iso+mean_aniso*mu0
-    I_E_aniso = b_spec(Ei,prim_mean,var_iso)
-    dsdO = diffxsec_legendre_eval(sigma,muc,Tlcoeff_interp)
-    jacob = col.g(A_T,Ei,Eo,1.0,-1.0,0.0)
-    res = np.trapz(jacob*dsdO*I_E_aniso*rhoR_asym,Ein,axis=-1)
-    return res
-
-# nD spectrum produced by scattering of incoming neutron source with anisotropic birth spectrum
-def nDspec_aniso(Eout,Ein,mean_iso,mean_aniso,var_iso,b_spec,A_D,P1_mag):
-    Ei,Eo  = np.meshgrid(Ein,Eout)
-    muc    = col.muc(A_D,Ei,Eo,1.0,-1.0,0.0)
-    sigma  = sigma_nD(Ein)
-    E_vec  = 1e6*Ein
-    Tlcoeff,Nl     = interp_Tlcoeff("nD",E_vec)
-    Tlcoeff_interp = 0.5*(2*np.arange(0,Nl)+1)*Tlcoeff
-    mu0 = col.mu_out(A_D,Ei,Eo,0.0)
-    rhoR_asym = 1.0+P1_mag*mu0
-    prim_mean = mean_iso+mean_aniso*mu0
-    I_E_aniso = b_spec(Ei,prim_mean,var_iso)
-    dsdO = diffxsec_legendre_eval(sigma,muc,Tlcoeff_interp)
-    jacob = col.g(A_D,Ei,Eo,1.0,-1.0,0.0)
-    res = np.trapz(jacob*dsdO*I_E_aniso*rhoR_asym,Ein,axis=-1)
-    return res
-
-def init_n2n_ddxs(Eout,Ein,I_E,Nm=100):
-    mu = np.linspace(-1.0,1.0,Nm)
-    Dn2n_ddx.regular_grid(Ein,mu,Eout)
-    Tn2n_ddx.regular_grid(Ein,mu,Eout)
-    Dn2n_ddx.rgrid_sym = np.trapz(Dn2n_ddx.rgrid,mu,axis=1)
-    Tn2n_ddx.rgrid_sym = np.trapz(Tn2n_ddx.rgrid,mu,axis=1)
-    Dn2n_ddx.dNdE_sym  = np.trapz(I_E[:,None]*Dn2n_ddx.rgrid_sym,Ein,axis=0)
-    Tn2n_ddx.dNdE_sym  = np.trapz(I_E[:,None]*Tn2n_ddx.rgrid_sym,Ein,axis=0)
-
-
-def init_n2n_ddxs_mode1(Eout,Ein,I_E,P1,Nm=100):
-    mu = np.linspace(-1.0,1.0,Nm)
-    Dn2n_ddx.regular_grid(Ein,mu,Eout)
-    Tn2n_ddx.regular_grid(Ein,mu,Eout)
-    Dn2n_ddx.rgrid_IE = np.trapz(I_E[:,None,None]*Dn2n_ddx.rgrid,Ein,axis=0)
-    Tn2n_ddx.rgrid_IE = np.trapz(I_E[:,None,None]*Tn2n_ddx.rgrid,Ein,axis=0)
-    Dn2n_ddx.rgrid_P1 = np.trapz(Dn2n_ddx.rgrid_IE[:,:,None]*(1+P1[None,None,:]*mu[:,None,None]),mu,axis=0)
-    Tn2n_ddx.rgrid_P1 = np.trapz(Tn2n_ddx.rgrid_IE[:,:,None]*(1+P1[None,None,:]*mu[:,None,None]),mu,axis=0)
+##############################################################################
+# Deprecated n2n matrix representation
+E1_n2n = np.linspace(13,15,100)
+E2_n2n = np.linspace(1.0,13,500)
+Dn2n_matrix = np.loadtxt(xsec_dir + "Dn2n_matrix.dat")
+Tn2n_matrix_1 = np.loadtxt(xsec_dir + "Tn2n_matrix_ENDFLAW6.dat")
+Tn2n_matrix_2 = np.loadtxt(xsec_dir + "Tn2n_matrix_CENDL_transform.dat")
+# 2D interpolation functions
+Dn2n_2dinterp = interp2d(E1_n2n,E2_n2n,Dn2n_matrix.T,kind='linear',bounds_error=False,fill_value=0.0)
+Tn2n_1_2dinterp = interp2d(E1_n2n,E2_n2n,Tn2n_matrix_1.T,kind='linear',bounds_error=False,fill_value=0.0)
+Tn2n_2_2dinterp = interp2d(E1_n2n,E2_n2n,Tn2n_matrix_2.T,kind='linear',bounds_error=False,fill_value=0.0)
+# Deprecated n2n matrix representation
+############################################################################
