@@ -389,6 +389,20 @@ class material_data:
             n2n_params         = [1.0e0,1.0e0,2.990140e0,1.0e0,3.996800e0,-6.25756e0]
 
             tot_xsec_file      = xsec_dir + "tot_T_xsec.dat"
+        elif(self.label == 'C'):
+            pass
+        elif(self.label == 'Be'):
+            self.A = A_Be
+            elastic_xsec_file  = xsec_dir + "ENDF_Be9(n,elastic)_xsec.dat"
+            elastic_dxsec_file = xsec_dir + "ENDF_Be9(n,elastic)_dx.dat"
+
+            self.l_n2n         = True
+            n2n_type           = 1
+            n2n_xsec_file      = xsec_dir + "ENDF_Be9(n,2n)_xsec.dat"
+            n2n_dxsec_file     = xsec_dir + "ENDF_Be9(n,2n)_ddx.dat"
+            n2n_params         = None
+
+            tot_xsec_file      = xsec_dir + "tot_Be_xsec.dat"
         else:
             print("Material label "+self.label+" not recognised")
 
