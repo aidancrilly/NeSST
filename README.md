@@ -14,10 +14,11 @@ Total and differential cross sections for elastic and inelastic processes are us
 - Scattering of all primary neutron sources
 - Inclusion of areal density asymmetry effects
 - Backscatter edge shape effects from scattering ion kinematics
+- Preliminary scattering 9Be support
 
 ## Future model developments:
 - Offline table support for backscatter edge matrix
-- Ablator scattering support (C, CH, Be)
+- Additional ablator scattering support (C, CH)
 
 The models used in this code are described in the following publications:
 

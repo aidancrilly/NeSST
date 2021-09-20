@@ -72,15 +72,20 @@ def dsigdOmega(A,Ein,Eout,Ein_vec,muin,muout,vf,reac_type):
 # Inelastic double differential cross sections
 
 def ENDF_format(x):
-    sign = x[-2]
-    exp  = x[-1]
-    num  = x[:-2]
+    x_after_decimal = x.split('.')[1]
+    if('+' in x_after_decimal):
+        sign = '+'
+    elif('-' in x_after_decimal):
+        sign = '-'
+    exp  = x.split(sign)[-1]
+    num  = x[:-(len(exp)+1)]
     if(sign == '-'):
         return float(num)*10**(-int(exp))
     elif(sign == '+'):
         return float(num)*10**(+int(exp))
     else:
         print("Strange ENDF float detected....")
+        print(x)
         return 0.0
 
 # Reads and interpolated data saved in the ENDF interpreted data format
@@ -294,18 +299,6 @@ class doubledifferentialcrosssection_data:
             for j in range(mu.shape[0]):
                 self.rgrid[i,j,:] = 2.*self.xsec_interp(Ein[i])*self.interpolate(Ein[i],mu[j],Eout)
 
-    def ENDF_format(self,x):
-        sign = x[-2]
-        exp  = x[-1]
-        num  = x[:-2]
-        if(sign == '-'):
-            return float(num)*10**(-int(exp))
-        elif(sign == '+'):
-            return float(num)*10**(+int(exp))
-        else:
-            print("Strange ENDF float detected....")
-            return 0.0
-
 class doubledifferentialcrosssection_LAW6:
 
     def __init__(self,filexsec,A_i,A_e,A_t,A_p,A_tot,Q_react):
@@ -361,48 +354,53 @@ A_Be = MBe/Mn
 def unity(x):
     return np.ones_like(x)
 
+available_materials = ["D","T","9Be"]
+
 class material_data:
 
     def __init__(self,label):
         self.label = label
         if(self.label == 'D'):
-            self.A = A_D
+            self.A = Md/Mn
             elastic_xsec_file  = xsec_dir + "ENDF_H2(n,elastic)_xsec.dat"
             elastic_dxsec_file = xsec_dir + "ENDF_H2(n,elastic)_dx.dat"
 
             self.l_n2n         = True
+            # n2n_type = 0 is ENDF LAW=6, n2n_type = 1 is tabulated double differential cross sections
             n2n_type           = 1
             n2n_xsec_file      = xsec_dir + "CENDL_d(n,2n)_xsec.dat"
             n2n_dxsec_file     = xsec_dir + "CENDL_d(n,2n)_ddx.dat"
             n2n_params         = None
 
-            tot_xsec_file      = xsec_dir + "tot_D_xsec.dat"
+            tot_xsec_file      = xsec_dir + "ENDF_nH2_totxsec.dat"
         elif(self.label == 'T'):
-            self.A = A_T
+            self.A = Mt/Mn
             elastic_xsec_file  = xsec_dir + "ENDF_H3(n,elastic)_xsec.dat"
             elastic_dxsec_file = xsec_dir + "ENDF_H3(n,elastic)_dx.dat"
 
             self.l_n2n         = True
+            # n2n_type = 0 is ENDF LAW=6, n2n_type = 1 is tabulated double differential cross sections
             n2n_type           = 0
             n2n_xsec_file      = xsec_dir + "ENDF_t(n,2n)_xsec.dat"
             n2n_dxsec_file     = None
             n2n_params         = [1.0e0,1.0e0,2.990140e0,1.0e0,3.996800e0,-6.25756e0]
 
-            tot_xsec_file      = xsec_dir + "tot_T_xsec.dat"
+            tot_xsec_file      = xsec_dir + "ENDF_nH3_totxsec.dat"
         elif(self.label == 'C'):
             pass
         elif(self.label == 'Be'):
-            self.A = A_Be
+            self.A = MBe/Mn
             elastic_xsec_file  = xsec_dir + "ENDF_Be9(n,elastic)_xsec.dat"
             elastic_dxsec_file = xsec_dir + "ENDF_Be9(n,elastic)_dx.dat"
 
             self.l_n2n         = True
+            # n2n_type = 0 is ENDF LAW=6, n2n_type = 1 is tabulated double differential cross sections
             n2n_type           = 1
             n2n_xsec_file      = xsec_dir + "ENDF_Be9(n,2n)_xsec.dat"
             n2n_dxsec_file     = xsec_dir + "ENDF_Be9(n,2n)_ddx.dat"
             n2n_params         = None
 
-            tot_xsec_file      = xsec_dir + "tot_Be_xsec.dat"
+            tot_xsec_file      = xsec_dir + "ENDF_nBe9_totxsec.dat"
         else:
             print("Material label "+self.label+" not recognised")
 
@@ -414,8 +412,8 @@ class material_data:
         for i in range(1,dx_data.shape[1]):
             self.dx_spline.append(interp1d(dx_data[:,0]/1e6,dx_data[:,i],kind='linear',bounds_error=False,fill_value=0.0))
 
-        tot_xsec_data = np.loadtxt(tot_xsec_file)
-        self.sigma_tot = interp1d(tot_xsec_data[:,0],tot_xsec_data[:,1]*1e28,kind='linear',bounds_error=False,fill_value=0.0)
+        tot_xsec_data = self.read_ENDF_xsec_file(tot_xsec_file)
+        self.sigma_tot = interp1d(tot_xsec_data[:,0],tot_xsec_data[:,1],kind='linear',bounds_error=False,fill_value=0.0)
 
         if(self.l_n2n):
             if(n2n_type == 0):
@@ -464,6 +462,10 @@ class material_data:
         self.n2n_mu = np.linspace(-1.0,1.0,Nm)
         self.n2n_ddx.regular_grid(Ein,self.n2n_mu,Eout)
 
+    def calc_dNdEs(self,I_E,rhoL_func):
+        self.calc_station_elastic_dNdE(I_E,rhoL_func)
+        self.calc_n2n_dNdE(I_E,rhoL_func)
+
     # Spectrum produced by scattering of incoming isotropic neutron source I_E with normalised areal density asymmetry rhoR_asym_func
     def calc_station_elastic_dNdE(self,I_E,rhoL_func):
         rhoL_asym = rhoL_func(self.elastic_mu0)
@@ -473,6 +475,15 @@ class material_data:
         rhoL_asym = rhoL_func(self.n2n_mu)
         grid_dNdE = np.trapz(self.n2n_ddx.rgrid*rhoL_asym[None,:,None],self.n2n_mu,axis=1)
         self.n2n_dNdE = np.trapz(I_E[:,None]*grid_dNdE,self.Ein,axis=0)
+
+    def rhoR_2_A1s(self,rhoR):
+        # Mass of neutron in milligrams
+        mn_mg = 1.674927485e-21
+        mbar  = self.A*mn_mg
+        # barns to cm^2
+        sigmabarn = 1e-24
+        A_1S = rhoR*(sigmabarn/mbar)
+        return A_1S
 
     # # Spectrum produced by scattering of incoming neutron source with anisotropic birth spectrum
     # def elastic_scatter_aniso(self,Eout,Ein,mean_iso,mean_aniso,var_iso,b_spec,rhoR_asym_func):
@@ -495,6 +506,7 @@ class material_data:
 # Default load D and T
 mat_D = material_data('D')
 mat_T = material_data('T')
+mat_9Be = material_data('Be')
 
 # Load in TT spectrum
 # Based on Appelbe, stationary emitter, temperature range between 1 and 10 keV
