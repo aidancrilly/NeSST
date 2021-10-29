@@ -136,8 +136,38 @@ def DDprimspecmoments(Tion):
 #######################################
 
 def init_DT_scatter(Eout,Ein):
-    sm.mat_D.init_station_scatter_matrices(Eout,Ein)
-    sm.mat_T.init_station_scatter_matrices(Eout,Ein)
+    sm.mat_D.init_energy_grids(Eout,Ein)
+    sm.mat_T.init_energy_grids(Eout,Ein)
+    sm.mat_D.init_station_scatter_matrices()
+    sm.mat_T.init_station_scatter_matrices()
+
+def init_DT_ionkin_scatter(varr,nT=False,nD=False):
+    if(nT):
+        if(sm.mat_T.Ein is None):
+            print("nT - Needed to initialise energy grids - see init_DT_scatter")
+        else:
+            sm.mat_T.full_scattering_matrix_create(varr)
+    if(nD):
+        if(sm.mat_D.Ein is None):
+            print("nD - Needed to initialise energy grids - see init_DT_scatter")
+        else:
+            sm.mat_D.full_scattering_matrix_create(varr)
+
+def calc_DT_ionkin_primspec_rhoL_integral(I_E,rhoL_func=None,nT=False,nD=False):
+    if(nT):
+        if(sm.mat_T.vvec is None):
+            print("nT - Needed to initialise velocity grid - see init_DT_ionkin_scatter")
+        else:
+            if(rhoL_func is not None):
+                sm.mat_T.scattering_matrix_apply_rhoLfunc(rhoL_func)
+            sm.mat_T.matrix_primspec_int(I_E)
+    if(nD):
+        if(sm.mat_D.vvec is None):
+            print("nD - Needed to initialise velocity grid - see init_DT_ionkin_scatter")
+        else:
+            if(rhoL_func is not None):
+                sm.mat_D.scattering_matrix_apply_rhoLfunc(rhoL_func)
+            sm.mat_D.matrix_primspec_int(I_E)
 
 ###########################################
 #   Single Evalutation Scattered Spectra  #
@@ -253,88 +283,6 @@ def calc_splines_w_DD(E_full_arr,Ein,I_DT,I_DD,P1,Tion,frac_D=frac_D_default,fra
 #####################################################
 # Inclusion of ion velocities to scattering kernels #
 #####################################################
-
-# Offline table formation and loading
-
-class dsigdE_table:
-
-    def __init__(self,filedir,reac_type):
-
-        self.filedir = Path(filedir) # Make into a pathlib path which make linux/windows paths work smoothly
-        self.reac_type = reac_type
-        self.M_full = None
-        self.M_prim = None
-
-    # Integrand of Eq. 8 in A. J. Crilly 2019 PoP
-    def integrand_tabular(self,Ein,Eout,muin,vf,P1,Ein_vec):
-        # Reverse velocity direction so +ve vf is implosion
-        # Choose this way round so vf is +ve if shell coming TOWARDS detector
-        vf    = -vf
-        if  (self.reac_type == "nT"):
-            A = Mt/Mn
-        elif(self.reac_type == "nD"):
-            A = Md/Mn
-        else:
-            # print('WARNING: Unkown reaction type %s, setting edge to zeros'%self.reac_type)
-            return np.zeros(np.shape(col.mu_out(Mt/Mn,Ein,Eout,vf)))
-        muout = col.mu_out(A,Ein,Eout,vf)
-        jacob = col.g(A,Ein,Eout,muin,muout,vf)
-        flux_change = col.flux_change(Ein,muin,vf)
-        RhoRAsym = (1.0+P1[None,None,None,:]*muout[:,:,:,None])
-        # Integrand of Eq. 8 in A. J. Crilly 2019 PoP
-        dsigdOmega = sm.dsigdOmega(A,Ein,Eout,Ein_vec,muin,muout,vf,self.reac_type)
-        return RhoRAsym*flux_change[:,:,:,None]*dsigdOmega[:,:,:,None]*jacob[:,:,:,None]
-
-    def matrix_create_and_save(self,Ein,Eout,vvec,P1):
-
-        self.Ein  = Ein
-        self.Eout = Eout
-        self.vvec = vvec
-        self.P1   = P1
-
-        np.savetxt(self.filedir / "Ein.dat",Ein)
-        np.savetxt(self.filedir / "Eout.dat",Eout)
-        np.savetxt(self.filedir / "vvec.dat",vvec)
-        np.savetxt(self.filedir / "P1.dat",P1)
-
-        EEo,vv,EEi = np.meshgrid(Eout,vvec,Ein,indexing='ij')
-        integral   = self.integrand_tabular(EEi,EEo,1.0,vv,P1,Ein)
-
-        self.M_full = integral
-
-        np.save(self.filedir / (self.reac_type + "-dsigdE_table"),integral)
-
-    def matrix_load(self):
-
-        # Load vectors
-        Ein_load  = np.loadtxt(self.filedir / "Ein.dat")
-        Eout_load = np.loadtxt(self.filedir / "Eout.dat")
-        vvec_load = np.loadtxt(self.filedir / "vvec.dat")
-        P1_load   = np.loadtxt(self.filedir / "P1.dat")
-
-        self.Ein  = Ein_load
-        self.Eout = Eout_load
-        self.vvec = vvec_load
-        self.P1   = P1_load
-
-        M_load = np.load(self.filedir / (self.reac_type + "-dsigdE_table.npy"))
-
-        # Load matrix
-        self.M_full = M_load
-
-    # Integrate out the birth neutron spectrum
-    def matrix_primspec_int(self,I_E):
-        self.M_prim = np.trapz(self.M_full*I_E[None,None,:,None],self.Ein,axis=2)
-
-    # Integrate out the ion velocity distribution
-    def matrix_interpolate(self,E,vbar,dv,P1_mag):
-        # Integrating over Gaussian
-        gauss = np.exp(-(self.vvec-vbar)**2/2.0/(dv**2))/np.sqrt(2*np.pi)/dv
-        M_v   = np.trapz(self.M_prim*gauss[None,:,None],self.vvec,axis=1)
-        # Interpolate to energy points E
-        interp   = interp2d(self.Eout,self.P1,M_v.T,kind='linear',copy=False)
-        m_interp = interp(E,P1_mag)
-        return m_interp
 
 # Inline calculation
 
