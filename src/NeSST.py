@@ -149,10 +149,10 @@ def sym_scatter_spec(I_E,frac_D=frac_D_default,frac_T=frac_T_default):
     sm.mat_T.calc_station_elastic_dNdE(I_E,rhoL_func)
     sm.mat_D.calc_n2n_dNdE(I_E,rhoL_func)
     sm.mat_T.calc_n2n_dNdE(I_E,rhoL_func)
-    nT   = frac_T*sm.mat_T.elastic_dNdE
     nD   = frac_D*sm.mat_D.elastic_dNdE
-    Dn2n = frac_D*sm.mat_T.n2n_dNdE
-    Tn2n = frac_T*sm.mat_D.n2n_dNdE
+    nT   = frac_T*sm.mat_T.elastic_dNdE
+    Dn2n = frac_D*sm.mat_D.n2n_dNdE
+    Tn2n = frac_T*sm.mat_T.n2n_dNdE
     total = nD+nT+Dn2n+Tn2n
     return total,(nD,nT,Dn2n,Tn2n)
 
@@ -161,10 +161,10 @@ def asym_scatter_spec(I_E,rhoL_func,frac_D=frac_D_default,frac_T=frac_T_default)
     sm.mat_T.calc_station_elastic_dNdE(I_E,rhoL_func)
     sm.mat_D.calc_n2n_dNdE(I_E,rhoL_func)
     sm.mat_T.calc_n2n_dNdE(I_E,rhoL_func)
-    nT   = frac_T*sm.mat_T.elastic_dNdE
     nD   = frac_D*sm.mat_D.elastic_dNdE
-    Dn2n = frac_D*sm.mat_T.n2n_dNdE
-    Tn2n = frac_T*sm.mat_D.n2n_dNdE
+    nT   = frac_T*sm.mat_T.elastic_dNdE
+    Dn2n = frac_D*sm.mat_D.n2n_dNdE
+    Tn2n = frac_T*sm.mat_T.n2n_dNdE
     total = nD+nT+Dn2n+Tn2n
     return total,(nD,nT,Dn2n,Tn2n)
 
