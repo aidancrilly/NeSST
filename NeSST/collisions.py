@@ -1,5 +1,5 @@
 import numpy as np
-from NeSST.Constants import *
+from NeSST.constants import *
 
 classical_collisions = None
 

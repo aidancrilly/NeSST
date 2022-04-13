@@ -9,7 +9,7 @@ from scipy.interpolate import interp1d
 from scipy.interpolate import interp2d
 from scipy.optimize import curve_fit
 # NeSST libraries
-from NeSST.Constants import *
+from NeSST.constants import *
 import NeSST.collisions as col
 import NeSST.spectral_model as sm
 

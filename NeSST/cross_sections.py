@@ -5,7 +5,7 @@ from numpy.polynomial.legendre import legval
 from scipy.interpolate import interp1d
 from scipy.interpolate import interp2d
 import os
-from NeSST.Constants import *
+from NeSST.constants import *
 import NeSST.collisions as col
 
 #################################
