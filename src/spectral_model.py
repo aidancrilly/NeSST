@@ -208,7 +208,7 @@ class material_data:
         gauss = np.exp(-(self.vvec-vbar)**2/2.0/(dv**2))/np.sqrt(2*np.pi)/dv
         M_v   = np.trapz(self.M_prim*gauss[None,:],self.vvec,axis=1)
         # Interpolate to energy points E
-        interp = interp1d(self.Eout,M_v,kind='linear',copy=False)
+        interp = interp1d(self.Eout,M_v,kind='linear',copy=False,bounds_error=False)
         return interp(E)
 
 
