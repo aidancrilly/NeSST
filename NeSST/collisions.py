@@ -1,6 +1,5 @@
 import numpy as np
-from Constants import *
-import matplotlib.pyplot as plt
+from NeSST.Constants import *
 
 classical_collisions = None
 

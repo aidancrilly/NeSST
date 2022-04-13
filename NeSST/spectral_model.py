@@ -3,9 +3,10 @@
 import numpy as np
 from scipy.interpolate import interp1d
 from scipy.interpolate import interp2d
-import collisions as col
-from Constants import *
-import cross_sections as xs
+
+from NeSST.Constants import *
+import NeSST.collisions as col
+import NeSST.cross_sections as xs
 
 ##################
 # Material class #

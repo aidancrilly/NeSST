@@ -5,8 +5,8 @@ from numpy.polynomial.legendre import legval
 from scipy.interpolate import interp1d
 from scipy.interpolate import interp2d
 import os
-import collisions as col
-from Constants import *
+from NeSST.Constants import *
+import NeSST.collisions as col
 
 #################################
 # Loading in cross section data #

@@ -8,15 +8,10 @@ from pathlib import Path
 from scipy.interpolate import interp1d
 from scipy.interpolate import interp2d
 from scipy.optimize import curve_fit
-# Elastic collisions scattering kernel &
-# differential cross sections
-import collisions as col
-import spectral_model as sm
-from Constants import *
-
-# Energy units - MeV
-# Temperature units - keV
-# Velocity units - m/s
+# NeSST libraries
+from NeSST.Constants import *
+import NeSST.collisions as col
+import NeSST.spectral_model as sm
 
 # Global variable defaults
 col.classical_collisions = False
@@ -26,6 +21,10 @@ frac_T_default = 0.5
 # Set to True to calculate double scatters, set to False to not
 # Note double scatter model assumes isotropic areal density for scattered neutrons - this is usually a poor approx.
 DS_switch = False
+
+# Energy units - MeV
+# Temperature units - keV
+# Velocity units - m/s
 
 ##########################################
 # Primary spectral shapes & reactivities #
