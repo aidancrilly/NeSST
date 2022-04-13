@@ -1,5 +1,4 @@
 # Backend of spectral model
-
 import numpy as np
 from numpy.polynomial.legendre import legval
 from scipy.interpolate import interp1d
