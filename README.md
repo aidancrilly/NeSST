@@ -1,27 +1,35 @@
 # NeSST
 Neutron Scattered Spectra Tool
 
+```
 import NeSST as nst
-
-## Author:
-- Aidan Crilly
-E-mail: ac116@ic.ac.uk
-
-##Installation
-
-- Install from PyPI 
-
-pip install NeSST
-
-- Clone git repository 
-
-pip install -e .
+```
 
 ## Package Description
 NeSST is a tool for producing singly scattered neutron spectra from ICF implosions. Various models for primary neutron spectra are given but the main focus of the code is on the scattered components.
 Total and differential cross sections for elastic and inelastic processes are used to form a singly scattered spectrum - the effect of areal density asymmetries can be incorporated into the resultant spectra.
 
 Example of code usage can be found in ./example directory
+
+## Author:
+- Aidan Crilly
+E-mail: ac116@ic.ac.uk
+
+## Installation
+
+- Easier method: Install from PyPI 
+
+```
+pip install NeSST
+```
+
+- Clone git repository and pip install local copy
+
+```
+git clone https://github.com/aidancrilly/NeSST.git
+cd NeSST
+pip install -e .
+```
 
 ## Current model specifications:
 - Primary spectrum models for DT, DD and TT
