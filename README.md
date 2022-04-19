@@ -39,15 +39,15 @@ pip install -e .
 - Scattering of all primary neutron sources
 - Inclusion of areal density asymmetry effects and variable fuel fractions
 - Backscatter edge shape effects from scattering ion kinematics
-- Preliminary scattering 9Be support
+- Preliminary scattering in H, 12C, 9Be support
 
 ## Future model developments:
-- Offline table support for backscatter edge matrix
-- Additional ablator scattering support (C, CH)
+- Pre-computed table support for backscatter edge matrix
+- Knock-on ion spectra
 
 ## DT cross section and reactivity data:
-ENDF: nT elastic, nD elastic, T(n,2n), TT primary
-CENDL: D(n,2n)
+ENDF: nT elastic, nD elastic, nH elastic, T(n,2n), TT primary
+CENDL: D(n,2n), n12C elastic and 4.4 MeV inelastic
 Bosch-Hale: DT primary, DD primary
 
 ## Publications:
