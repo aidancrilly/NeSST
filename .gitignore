@@ -2,3 +2,4 @@ __pycache__
 NeSST/__pycache__/
 example/.ipynb_checkpoints/
 *.egg-info
+dist/
