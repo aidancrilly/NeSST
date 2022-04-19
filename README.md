@@ -45,6 +45,7 @@ pip install -e .
 - Preliminary scattering in H, 12C, 9Be support
 
 ## Future model developments:
+- Fitting models with ion kinematic approximations
 - Fitting model in normalised time-of-flight domain
 - Pre-computed table support for backscatter edge matrix
 - Knock-on ion spectra
