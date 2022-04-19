@@ -5,6 +5,8 @@ Neutron Scattered Spectra Tool: A python tool for ICF neutron spectroscopy in th
 import NeSST as nst
 ```
 
+A quick overview is given in the [Jupyter notebook guide](https://nbviewer.org/github/aidancrilly/NeSST/blob/pip_package/example/NeSST%20Guide.ipynb)
+
 ## Package Description
 NeSST is a tool for producing singly scattered neutron spectra from ICF implosions. Various models for primary neutron spectra are given but the main focus of the code is on the scattered components.
 Total and differential cross sections for elastic and inelastic processes are used to form a singly scattered spectrum - the effect of areal density asymmetries can be incorporated into the resultant spectra.
