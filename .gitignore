@@ -1,4 +1,4 @@
-tests/
-dsigdE_tables/
-src/__pycache__/
+__pycache__
+NeSST/__pycache__/
 example/.ipynb_checkpoints/
+*.egg-info
