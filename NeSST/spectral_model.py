@@ -13,6 +13,7 @@ import NeSST.cross_sections as xs
 ##################
 
 # A values needed for scattering kinematics
+A_H  = Mp/Mn
 A_D  = Md/Mn
 A_T  = Mt/Mn
 A_C  = MC/Mn
@@ -21,12 +22,20 @@ A_Be = MBe/Mn
 def unity(x):
     return np.ones_like(x)
 
-available_materials = ["D","T","9Be"]
+available_materials = ["H","D","T","12C","9Be"]
 
 class material_data:
 
     def __init__(self,label):
         self.label = label
+        self.l_n2n = False
+        self.inelastic = False
+        if(self.label == 'H'):
+            self.A = Mp/Mn
+            elastic_xsec_file  = xs.xsec_dir + "ENDF_H1(n,elastic)_xsec.dat"
+            elastic_dxsec_file = xs.xsec_dir + "ENDF_H1(n,elastic)_dx.dat"
+
+            tot_xsec_file      = xs.xsec_dir + "ENDF_H1(n,elastic)_xsec.dat"
         if(self.label == 'D'):
             self.A = Md/Mn
             elastic_xsec_file  = xs.xsec_dir + "ENDF_H2(n,elastic)_xsec.dat"
@@ -53,9 +62,18 @@ class material_data:
             n2n_params         = [1.0e0,1.0e0,2.990140e0,1.0e0,3.996800e0,-6.25756e0]
 
             tot_xsec_file      = xs.xsec_dir + "ENDF_nH3_totxsec.dat"
-        elif(self.label == 'C'):
-            pass
-        elif(self.label == 'Be'):
+        elif(self.label == '12C'):
+            self.A = MC/Mn
+            elastic_xsec_file  = xs.xsec_dir + "CENDL_C12(n,elastic)_xsec.dat"
+            elastic_dxsec_file = xs.xsec_dir + "CENDL_C12(n,elastic)_dx.dat"
+
+            self.inelastic     = True
+            self.inelastic_Q   = -4.43890 # MeV
+            inelastic_xsec_file  = xs.xsec_dir + "CENDL_C12(n,n1)_xsec.dat"
+            inelastic_dxsec_file = xs.xsec_dir + "CENDL_C12(n,n1)_dx.dat"
+
+            tot_xsec_file      = xs.xsec_dir + "CENDL_C12_totxsec.dat"
+        elif(self.label == '9Be'):
             self.A = MBe/Mn
             elastic_xsec_file  = xs.xsec_dir + "ENDF_Be9(n,elastic)_xsec.dat"
             elastic_dxsec_file = xs.xsec_dir + "ENDF_Be9(n,elastic)_dx.dat"
@@ -88,6 +106,14 @@ class material_data:
             elif(n2n_type == 1):
                 self.n2n_ddx = xs.doubledifferentialcrosssection_data(n2n_xsec_file,n2n_dxsec_file,True)
 
+        if(self.inelastic):
+            inelastic_xsec_data = self.read_ENDF_xsec_file(inelastic_xsec_file)
+            self.isigma = interp1d(inelastic_xsec_data[:,0],inelastic_xsec_data[:,1],kind='linear',bounds_error=False,fill_value=0.0)
+            idx_data = np.loadtxt(inelastic_dxsec_file,skiprows = 6)
+            self.idx_spline = [unity]
+            for i in range(1,idx_data.shape[1]):
+                self.idx_spline.append(interp1d(idx_data[:,0]/1e6,idx_data[:,i],kind='linear',bounds_error=False,fill_value=0.0))
+
         self.Ein  = None       
         self.Eout = None
         self.vvec = None
@@ -118,6 +144,8 @@ class material_data:
         self.init_station_elastic_scatter()
         if(self.l_n2n):
             self.init_n2n_ddxs(Nm)
+        if(self.inelastic):
+            self.init_station_inelastic_scatter()
 
     # Elastic scatter matrix
     def init_station_elastic_scatter(self):
@@ -131,13 +159,31 @@ class material_data:
         jacob = col.g(self.A,Ei,Eo,1.0,-1.0,0.0)
         self.elastic_dNdEdmu = jacob*dsdO
 
+    # Inelastic scatter matrix
+    # Currently uses classical kinematics
+    def init_station_inelastic_scatter(self):
+        Ei,Eo  = np.meshgrid(self.Ein,self.Eout)
+        kin_a  = np.sqrt((self.A/(self.A+1))**2*(1.0+(self.A+1)/self.A*self.inelastic_Q/Ei))
+        kin_b  = 1.0/(self.A+1)
+        muc    = ((Eo/Ei)-kin_a**2-kin_b**2)/(2*kin_a*kin_b)
+        sigma  = self.isigma(self.Ein)
+        Tlcoeff,Nl     = xs.interp_Tlcoeff(self.idx_spline,self.Ein)
+        Tlcoeff_interp = 0.5*(2*np.arange(0,Nl)+1)*Tlcoeff
+        self.inelastic_mu0 = (np.sqrt(Eo/Ei)-(kin_a**2-kin_b**2)*np.sqrt(Ei/Eo))/(2*kin_b)
+        dsdO = xs.diffxsec_legendre_eval(sigma,muc,Tlcoeff_interp)
+        jacob = 2.0/((kin_a+kin_b)**2-(kin_a-kin_b)**2)/Ei
+        self.inelastic_dNdEdmu = jacob*dsdO
+
     def init_n2n_ddxs(self,Nm=100):
         self.n2n_mu = np.linspace(-1.0,1.0,Nm)
         self.n2n_ddx.regular_grid(self.Ein,self.n2n_mu,self.Eout)
 
     def calc_dNdEs(self,I_E,rhoL_func):
         self.calc_station_elastic_dNdE(I_E,rhoL_func)
-        self.calc_n2n_dNdE(I_E,rhoL_func)
+        if(self.l_n2n):
+            self.calc_n2n_dNdE(I_E,rhoL_func)
+        if(self.inelastic):
+            self.calc_station_inelastic_dNdE(I_E,rhoL_func)
 
     # Spectrum produced by scattering of incoming isotropic neutron source I_E with normalised areal density asymmetry rhoR_asym_func
     def calc_station_elastic_dNdE(self,I_E,rhoL_func):
@@ -213,10 +259,12 @@ class material_data:
         return interp(E)
 
 
-# Default load D and T
+# Default load
+mat_H = material_data('H')
 mat_D = material_data('D')
 mat_T = material_data('T')
-mat_9Be = material_data('Be')
+mat_12C = material_data('12C')
+mat_9Be = material_data('9Be')
 
 # Load in TT spectrum
 # Based on Appelbe, stationary emitter, temperature range between 1 and 10 keV
