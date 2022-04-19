@@ -22,8 +22,6 @@ A_Be = MBe/Mn
 def unity(x):
     return np.ones_like(x)
 
-available_materials = ["H","D","T","12C","9Be"]
-
 class material_data:
 
     def __init__(self,label):
@@ -36,7 +34,7 @@ class material_data:
             elastic_dxsec_file = xs.xsec_dir + "ENDF_H1(n,elastic)_dx.dat"
 
             tot_xsec_file      = xs.xsec_dir + "ENDF_H1(n,elastic)_xsec.dat"
-        if(self.label == 'D'):
+        elif(self.label == 'D'):
             self.A = Md/Mn
             elastic_xsec_file  = xs.xsec_dir + "ENDF_H2(n,elastic)_xsec.dat"
             elastic_dxsec_file = xs.xsec_dir + "ENDF_H2(n,elastic)_dx.dat"
@@ -190,6 +188,10 @@ class material_data:
         rhoL_asym = rhoL_func(self.elastic_mu0)
         self.elastic_dNdE = np.trapz(self.elastic_dNdEdmu*rhoL_asym*I_E[None,:],self.Ein,axis=1)
 
+    def calc_station_inelastic_dNdE(self,I_E,rhoL_func):
+        rhoL_asym = rhoL_func(self.elastic_mu0)
+        self.inelastic_dNdE = np.trapz(self.inelastic_dNdEdmu*rhoL_asym*I_E[None,:],self.Ein,axis=1)
+
     def calc_n2n_dNdE(self,I_E,rhoL_func):
         rhoL_asym = rhoL_func(self.n2n_mu)
         grid_dNdE = np.trapz(self.n2n_ddx.rgrid*rhoL_asym[None,:,None],self.n2n_mu,axis=1)
@@ -265,6 +267,8 @@ mat_D = material_data('D')
 mat_T = material_data('T')
 mat_12C = material_data('12C')
 mat_9Be = material_data('9Be')
+
+available_materials_dict = {"H" : mat_H, "D" : mat_D, "T" : mat_T, "12C" : mat_12C, "9Be" : mat_9Be}
 
 # Load in TT spectrum
 # Based on Appelbe, stationary emitter, temperature range between 1 and 10 keV

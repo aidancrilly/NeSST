@@ -14,6 +14,7 @@ Example of code usage can be found in ./example directory
 
 ## Author:
 - Aidan Crilly
+
 E-mail: ac116@ic.ac.uk
 
 ## Installation
@@ -42,12 +43,15 @@ pip install -e .
 - Preliminary scattering in H, 12C, 9Be support
 
 ## Future model developments:
+- Fitting model in normalised time-of-flight domain
 - Pre-computed table support for backscatter edge matrix
 - Knock-on ion spectra
 
 ## DT cross section and reactivity data:
 ENDF: nT elastic, nD elastic, nH elastic, T(n,2n), TT primary
+
 CENDL: D(n,2n), n12C elastic and 4.4 MeV inelastic
+
 Bosch-Hale: DT primary, DD primary
 
 ## Publications:

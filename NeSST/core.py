@@ -15,6 +15,7 @@ import NeSST.spectral_model as sm
 
 # Global variable defaults
 col.classical_collisions = False
+available_materials = list(sm.available_materials_dict.keys())
 # Atomic fraction of D and T in scattering medium and source
 frac_D_default = 0.5
 frac_T_default = 0.5
@@ -168,16 +169,24 @@ def calc_DT_ionkin_primspec_rhoL_integral(I_E,rhoL_func=None,nT=False,nD=False):
                 sm.mat_D.scattering_matrix_apply_rhoLfunc(rhoL_func)
             sm.mat_D.matrix_primspec_int(I_E)
 
+
+###################################
+# General material initialisation #
+###################################
+def init_mat_scatter(Eout,Ein,mat_label):
+    mat = sm.available_materials_dict[mat_label]
+    mat.init_energy_grids(Eout,Ein)
+    mat.init_station_scatter_matrices()
+    return mat
+
 ###########################################
 #   Single Evalutation Scattered Spectra  #
 ###########################################
 
-def sym_scatter_spec(I_E,frac_D=frac_D_default,frac_T=frac_T_default):
+def DT_sym_scatter_spec(I_E,frac_D=frac_D_default,frac_T=frac_T_default):
     rhoL_func = lambda x : np.ones_like(x)
-    sm.mat_D.calc_station_elastic_dNdE(I_E,rhoL_func)
-    sm.mat_T.calc_station_elastic_dNdE(I_E,rhoL_func)
-    sm.mat_D.calc_n2n_dNdE(I_E,rhoL_func)
-    sm.mat_T.calc_n2n_dNdE(I_E,rhoL_func)
+    sm.mat_D.calc_dNdEs(I_E,rhoL_func)
+    sm.mat_T.calc_dNdEs(I_E,rhoL_func)
     nD   = frac_D*sm.mat_D.elastic_dNdE
     nT   = frac_T*sm.mat_T.elastic_dNdE
     Dn2n = frac_D*sm.mat_D.n2n_dNdE
@@ -185,183 +194,43 @@ def sym_scatter_spec(I_E,frac_D=frac_D_default,frac_T=frac_T_default):
     total = nD+nT+Dn2n+Tn2n
     return total,(nD,nT,Dn2n,Tn2n)
 
-def asym_scatter_spec(I_E,rhoL_func,frac_D=frac_D_default,frac_T=frac_T_default):
-    sm.mat_D.calc_station_elastic_dNdE(I_E,rhoL_func)
-    sm.mat_T.calc_station_elastic_dNdE(I_E,rhoL_func)
-    sm.mat_D.calc_n2n_dNdE(I_E,rhoL_func)
-    sm.mat_T.calc_n2n_dNdE(I_E,rhoL_func)
-    nD   = frac_D*sm.mat_D.elastic_dNdE
-    nT   = frac_T*sm.mat_T.elastic_dNdE
-    Dn2n = frac_D*sm.mat_D.n2n_dNdE
-    Tn2n = frac_T*sm.mat_T.n2n_dNdE
-    total = nD+nT+Dn2n+Tn2n
-    return total,(nD,nT,Dn2n,Tn2n)
-
-##################################
-# Splining background components #
-##################################
-# These will be tidied 
-
-def calc_all_splines(E_full_arr,Ein,I_E,P1,frac_D=frac_D_default,frac_T=frac_T_default):
-    # DT scattering 
-    sm.init_n2n_ddxs_mode1(E_full_arr,Ein,I_E,P1)
-    Tn2nspline   = interp2d(E_full_arr,P1,frac_T*sm.Tn2n_ddx.rgrid_P1.T,bounds_error=False,fill_value=0.0)
-    Dn2nspline   = interp2d(E_full_arr,P1,frac_D*sm.Dn2n_ddx.rgrid_P1.T,bounds_error=False,fill_value=0.0)
-    nTspline     = interp2d(E_full_arr,P1,frac_T*sm.nTspec(E_full_arr,Ein,I_E,A_T,P1).T,bounds_error=False,fill_value=0.0)
-    nDspline     = interp2d(E_full_arr,P1,frac_D*sm.nDspec(E_full_arr,Ein,I_E,A_D,P1).T,bounds_error=False,fill_value=0.0)
-    return nTspline,nDspline,Dn2nspline,Tn2nspline
-
-def calc_splines_w_TT(E_full_arr,Ein,I_E,P1,Tion,frac_D=frac_D_default,frac_T=frac_T_default):
-    # TT primaries (note this is area normalized)
-    I_TT         = sm.TT_2dinterp(E_full_arr,Tion)
-    TT_spline    = interp1d(E_full_arr,I_TT)
-    TT_2_DT_reac = yield_from_dt_yield_ratio('tt',1.0,Tion)
-    # DT scattering 
-    sm.init_n2n_ddxs_mode1(E_full_arr,Ein,I_E,P1)
-    n2nspline    = interp2d(E_full_arr,P1,frac_T*sm.Tn2n_ddx.rgrid_P1.T+frac_D*sm.Dn2n_ddx.rgrid_P1.T,bounds_error=False,fill_value=0.0)
-    nDspline     = interp2d(E_full_arr,P1,frac_D*sm.nDspec(E_full_arr,Ein,I_E,A_D,P1).T,bounds_error=False,fill_value=0.0)
-    # TT scattered spline
-    I_TT_1S_nT   = frac_T*sm.nTspec(E_full_arr,E_full_arr,I_TT,A_T)
-    I_TT_1S_nD   = frac_D*sm.nDspec(E_full_arr,E_full_arr,I_TT,A_D)
-    I_TT_1S      = TT_2_DT_reac*(I_TT_1S_nT+I_TT_1S_nD)
-    TT_1Sspline  = interp1d(E_full_arr,I_TT_1S,bounds_error=False,fill_value=0.0)
-    return (nDspline,n2nspline,TT_spline,TT_1Sspline)
-
-def calc_all_splines_w_TT(E_full_arr,Ein,I_E,P1,Tion,frac_D=frac_D_default,frac_T=frac_T_default):
-    # TT primaries (note this is area normalized)
-    I_TT         = sm.TT_2dinterp(E_full_arr,Tion)
-    TT_spline    = interp1d(E_full_arr,I_TT)
-    TT_2_DT_reac = yield_from_dt_yield_ratio('tt',1.0,Tion)
-    # DT scattering 
-    sm.init_n2n_ddxs_mode1(E_full_arr,Ein,I_E,P1)
-    Tn2nspline   = interp2d(E_full_arr,P1,frac_T*sm.Tn2n_ddx.rgrid_P1.T,bounds_error=False,fill_value=0.0)
-    Dn2nspline   = interp2d(E_full_arr,P1,frac_D*sm.Dn2n_ddx.rgrid_P1.T,bounds_error=False,fill_value=0.0)
-    nTspline     = interp2d(E_full_arr,P1,frac_T*sm.nTspec(E_full_arr,Ein,I_E,A_T,P1).T,bounds_error=False,fill_value=0.0)
-    nDspline     = interp2d(E_full_arr,P1,frac_D*sm.nDspec(E_full_arr,Ein,I_E,A_D,P1).T,bounds_error=False,fill_value=0.0)
-    # TT scattered spline
-    I_TT_1S_nT   = frac_T*sm.nTspec(E_full_arr,E_full_arr,I_TT,A_T)
-    I_TT_1S_nD   = frac_D*sm.nDspec(E_full_arr,E_full_arr,I_TT,A_D)
-    I_TT_1S      = TT_2_DT_reac*(I_TT_1S_nT+I_TT_1S_nD)
-    TT_1Sspline  = interp1d(E_full_arr,I_TT_1S,bounds_error=False,fill_value=0.0)
-    return (nTspline,nDspline,Dn2nspline,Tn2nspline,TT_spline,TT_1Sspline)
-
-def calc_all_splines_w_DD(E_full_arr,Ein,I_DT,I_DD,P1,Tion,frac_D=frac_D_default,frac_T=frac_T_default):
-    # TT and DD primaries
-    I_TT         = sm.TT_2dinterp(E_full_arr,Tion)
-    TT_2_DT_reac = yield_from_dt_yield_ratio('tt',1.0,Tion)
-    DD_2_DT_reac = yield_from_dt_yield_ratio('dd',1.0,Tion)
-    prim_spline  = interp1d(E_full_arr,TT_2_DT_reac*I_TT+DD_2_DT_reac*I_DD)
-    # DT scattering 
-    sm.init_n2n_ddxs_mode1(E_full_arr,Ein,I_DT,P1)
-    Dn2nspline   = interp2d(E_full_arr,P1,frac_D*sm.Dn2n_ddx.rgrid_P1.T,bounds_error=False,fill_value=0.0)
-    Tn2nspline   = interp2d(E_full_arr,P1,frac_T*sm.Tn2n_ddx.rgrid_P1.T,bounds_error=False,fill_value=0.0)
-    nTspline     = interp2d(E_full_arr,P1,frac_T*sm.nTspec(E_full_arr,Ein,I_DT,A_T,P1).T,bounds_error=False,fill_value=0.0)
-    nDspline     = interp2d(E_full_arr,P1,frac_D*sm.nDspec(E_full_arr,Ein,I_DT,A_D,P1).T,bounds_error=False,fill_value=0.0)
-    # TT and DD scattered spline
-    I_1S_nT   = interp2d(E_full_arr,P1,frac_T*sm.nTspec(E_full_arr,E_full_arr,TT_2_DT_reac*I_TT+DD_2_DT_reac*I_DD,A_T,P1).T,bounds_error=False,fill_value=0.0)
-    I_1S_nD   = interp2d(E_full_arr,P1,frac_D*sm.nDspec(E_full_arr,E_full_arr,TT_2_DT_reac*I_TT+DD_2_DT_reac*I_DD,A_D,P1).T,bounds_error=False,fill_value=0.0)
-    return (nTspline,nDspline,Tn2nspline,Dn2nspline,prim_spline,I_1S_nT,I_1S_nD)
-
-def calc_splines_w_DD(E_full_arr,Ein,I_DT,I_DD,P1,Tion,frac_D=frac_D_default,frac_T=frac_T_default):
-    # TT and DD primaries
-    I_TT         = sm.TT_2dinterp(E_full_arr,Tion)
-    TT_2_DT_reac = yield_from_dt_yield_ratio('tt',1.0,Tion)
-    DD_2_DT_reac = yield_from_dt_yield_ratio('dd',1.0,Tion)
-    prim_spline  = interp1d(E_full_arr,TT_2_DT_reac*I_TT+DD_2_DT_reac*I_DD)
-    # DT scattering 
-    sm.init_n2n_ddxs_mode1(E_full_arr,Ein,I_DT,P1)
-    n2nspline    = interp2d(E_full_arr,P1,frac_T*sm.Tn2n_ddx.rgrid_P1.T+frac_D*sm.Dn2n_ddx.rgrid_P1.T,bounds_error=False,fill_value=0.0)
-    nDspline     = interp2d(E_full_arr,P1,frac_D*sm.nDspec(E_full_arr,Ein,I_DT,A_D,P1).T,bounds_error=False,fill_value=0.0)
-    # TT and DD scattered spline
-    I_1S_nT   = frac_T*sm.nTspec(E_full_arr,E_full_arr,TT_2_DT_reac*I_TT+DD_2_DT_reac*I_DD,A_T)
-    I_1S_nD   = frac_D*sm.nDspec(E_full_arr,E_full_arr,TT_2_DT_reac*I_TT+DD_2_DT_reac*I_DD,A_D)
-    I_1S      = (I_1S_nT+I_1S_nD)
-    I_1Sspline  = interp1d(E_full_arr,I_1S,bounds_error=False,fill_value=0.0)
-    return (nDspline,n2nspline,prim_spline,I_1Sspline)
-
-#####################################################
-# Inclusion of ion velocities to scattering kernels #
-#####################################################
-
-# Inline calculation
-
-# Integrand of Eq. 8 in A. J. Crilly 2019 PoP
-def integrand(Ein,Eout,muin,vf,Ein_vec,I_E,reac_type):
-    # Reverse velocity direction so +ve vf is implosion
-    # Choose this way round so vf is +ve if shell coming TOWARDS detector
-    vf    = -vf
-    if  (reac_type == "nT"):
-        A = sm.A_T
-    elif(reac_type == "nD"):
-        A = sm.A_D
+def DT_scatter_spec_w_ionkin(I_E,vbar,dv,rhoL_func,frac_D=frac_D_default,frac_T=frac_T_default):
+    rhoL_func = lambda x : np.ones_like(x)
+    sm.mat_D.calc_dNdEs(I_E,rhoL_func)
+    sm.mat_T.calc_dNdEs(I_E,rhoL_func)
+    if(sm.mat_D.vvec is None):
+        dNdE_nD = sm.mat_D.elastic_dNdE
     else:
-        # print('WARNING: Unkown reaction type %s, setting edge to zeros'%reac_type)
-        return np.zeros(np.shape(col.mu_out(A_T,Ein,Eout,vf)))
-    muout = col.mu_out(A,Ein,Eout,vf)
-    jacob = col.g(A,Ein,Eout,muin,muout,vf)
-    flux_change = col.flux_change(Ein,muin,vf)
-    dsdO = sm.dsigdOmega(A,Ein,Eout,Ein_vec,muin,muout,vf,reac_type)
-    return flux_change*dsdO*jacob*I_E # Integrand of Eq. 8 in A. J. Crilly 2019 PoP
+        dNdE_nD = sm.mat_D.matrix_interpolate_gaussian(sm.mat_D.Eout,vbar,dv)
+    if(sm.mat_T.vvec is None):
+        dNdE_nT = sm.mat_T.elastic_dNdE
+    else:
+        dNdE_nT = sm.mat_T.matrix_interpolate_gaussian(sm.mat_T.Eout,vbar,dv)
+    nD   = frac_D*dNdE_nD
+    nT   = frac_T*dNdE_nT
+    Dn2n = frac_D*sm.mat_D.n2n_dNdE
+    Tn2n = frac_T*sm.mat_T.n2n_dNdE
+    total = nD+nT+Dn2n+Tn2n
+    return total,(nD,nT,Dn2n,Tn2n)
 
-# Generates a matrix of the edge spectrum generated off a scatter of ion with velocity
-# v. Note this takes care of the integration with the primary source spectrum I_E
-# See equation 8 of Crilly 2019 PoP, E' integration performed within this subroutine
-def matrix_calc(E,v,Ein,I_E,reac_type):
-    # Generates a matrix of the edge spectrum generated off a scatter of ion with velocity
-    # v. Note this takes care of the integration with the primary source spectrum I_E
-    vv,EEo,EEi = np.meshgrid(v,E,Ein)
-    integral   = integrand(EEi,EEo,1.0,vv,Ein,I_E,reac_type)
-    # Integrate the source spectrum component
-    M          = np.trapz(integral,Ein,axis=-1)
-    return M
+def DT_asym_scatter_spec(I_E,rhoL_func,frac_D=frac_D_default,frac_T=frac_T_default):
+    sm.mat_D.calc_dNdEs(I_E,rhoL_func)
+    sm.mat_T.calc_dNdEs(I_E,rhoL_func)
+    nD   = frac_D*sm.mat_D.elastic_dNdE
+    nT   = frac_T*sm.mat_T.elastic_dNdE
+    Dn2n = frac_D*sm.mat_D.n2n_dNdE
+    Tn2n = frac_T*sm.mat_T.n2n_dNdE
+    total = nD+nT+Dn2n+Tn2n
+    return total,(nD,nT,Dn2n,Tn2n)
 
-# Perform 1D linear interpolation in energy space and integrate over Gaussian in velocity space
-def interpolate_matrix(M,E,vbar,dv,v_arr,E_arr):
-    gauss       = np.exp(-(v_arr-vbar)**2/2.0/(dv**2))/np.sqrt(2*np.pi)/dv
-    idx         = np.argmax(E_arr > E)
-    frac        = (E_arr[idx]-E)/(E_arr[idx]-E_arr[idx-1])
-    interp_in_E = (1-frac)*M[idx,:]+frac*M[idx-1,:]
-    return np.trapz(gauss*interp_in_E,v_arr) # this is the integral of veloctiies
-
-# Perform 1D linear interpolation in energy space and integrate over provided PDF in velocity space
-def interpolate_matrix_w_PDF(M,E,PDF,v_arr,E_arr):
-    idx         = np.argmax(E_arr > E)
-    frac        = (E_arr[idx]-E)/(E_arr[idx]-E_arr[idx-1])
-    interp_in_E = (1-frac)*M[idx,:]+frac*M[idx-1,:]
-    return np.trapz(PDF*interp_in_E,v_arr) # this is the integral of veloctiies
-
-# Perform 2D linear interpolation in energy and velocity space
-def interpolate_2D_matrix(M,E,vbar,v_arr,E_arr):
-    idx1  = np.argmax(E_arr > E)
-    frac1 = (E_arr[idx1]-E)/(E_arr[idx1]-E_arr[idx1-1])
-    idx2  = np.argmax(v_arr > vbar)
-    frac2 = (v_arr[idx2]-vbar)/(v_arr[idx2]-v_arr[idx2-1])
-    interp_in_E1 = (1-frac1)*M[idx1,idx2]+frac1*M[idx1-1,idx2]
-    interp_in_E2 = (1-frac1)*M[idx1,idx2-1]+frac1*M[idx1-1,idx2-1]
-    interp_in_2D = (1-frac2)*interp_in_E1+frac2*interp_in_E2
-    return interp_in_2D
-
-# Calculate the scattered spectrum over outgoing energy array E
-# Matrix in energy and velocity is interpolated in energy and integrated in velocity
-# via the appropriate scattering ion velocity distribution
-# Can hopefully replace for loop at some point
-def generate_velocity_weighted_spectrum(M,E,vbar,dv,v_arr,E_arr):
-    I_bs = np.zeros(len(E))
-    for i,e in enumerate(E):
-        I_bs[i]  = interpolate_matrix(M,e,vbar,dv,v_arr,E_arr)
-    return I_bs
-
-def generate_velocity_weighted_spectrum_w_PDF(M,E,PDF,v_arr,E_arr):
-    I_bs = np.zeros(len(E))
-    for i,e in enumerate(E):
-        I_bs[i]  = interpolate_matrix_w_PDF(M,e,PDF,v_arr,E_arr)
-    return I_bs
-
-def generate_single_velocity_spectrum(M,E,v_bar,v_arr,E_arr):
-    I_bs = np.zeros(len(E))
-    for i,e in enumerate(E):
-        I_bs[i]  = interpolate_2D_matrix(M,e,v_bar,v_arr,E_arr)
-    return I_bs
+def mat_scatter_spec(mat,I_E,rhoL_func):
+    mat.calc_dNdEs(I_E,rhoL_func)
+    total = mat.elastic_dNdE
+    if(mat.l_n2n):
+        total += mat.n2n_dNdE
+    if(mat.inelastic):
+        total += mat.inelastic_dNdE
+    return total
 
 ###############################
 # Full model fitting function #
