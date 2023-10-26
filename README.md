@@ -66,3 +66,5 @@ Neutron backscatter edge: A measure of the hydrodynamic properties of the dense 
 
 ## Acknowledgements:
 Many thanks to Owen Mannion and Brian Appelbe for their help during development of NeSST
+
+Social preview logo by Hotpot AI image generator.
