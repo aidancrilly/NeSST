@@ -15,5 +15,11 @@ jobs:
       - name: install package
         run: |
           pip install --upgrade pip
-          pip install .
+          pip install .[test]
           python -c "import NeSST"
+
+      - name: run examples
+        run: |
+          cd example
+          jupyter nbconvert --to python 'NeSST Guide.ipynb'
+          ipython 'NeSST Guide.py'
