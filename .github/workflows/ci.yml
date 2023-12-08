@@ -1,0 +1,19 @@
+# This CI will check the package is installable and run some tests
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  testing:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: install package
+        run: |
+          pip install --upgrade pip
+          pip install .
+          python -c "import NeSST"
