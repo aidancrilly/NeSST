@@ -1,4 +1,4 @@
-[![Continuous Integration](https://github.com/aidancrilly/NeSST/tree/master/.github/workflows/ci.yml/badge.svg)](https://github.com/aidancrilly/NeSST/tree/master/.github/workflows/ci.yml)
+[![Continuous Integration](https://github.com/aidancrilly/NeSST/actions/workflows/ci.yml/badge.svg)](https://github.com/aidancrilly/NeSST/actions/workflows/ci.yml)
 
 # NeSST
 Neutron Scattered Spectra Tool: A python tool for ICF neutron spectroscopy in the single scatter regime
