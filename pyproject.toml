@@ -34,7 +34,7 @@ tests = [
 ]
 
 [tool.setuptools.package-data]
-mypkg = ["*.dat", "*.txt"]
+mypkg = ["data/*.dat", "data/*.txt"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
