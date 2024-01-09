@@ -34,7 +34,7 @@ tests = [
 ]
 
 [tool.setuptools.package-data]
-NeSST = ["*.dat", "*.txt"]
+"NeSST.data" = ["*.dat", "*.txt"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
