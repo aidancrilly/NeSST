@@ -33,9 +33,6 @@ tests = [
     "pytest", "jupyter", "matplotlib"
 ]
 
-[tool.setuptools.packages.find]
-where = ["src"]
-
 [tool.setuptools.package-data]
 NeSST = ["*.dat", "*.txt"]
 
