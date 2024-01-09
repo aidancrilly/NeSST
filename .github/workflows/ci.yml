@@ -3,6 +3,8 @@ name: CI
 
 on:
   push:
+    branches:
+      - master
   pull_request:
 
 jobs:
@@ -17,3 +19,13 @@ jobs:
           pip install --upgrade pip
           pip install .
           python -c "import NeSST"
+
+      - name: install package with testing dependencies
+        run: |
+          pip install .[test]
+
+      - name: run examples
+        run: |
+          cd example
+          jupyter nbconvert --to python 'NeSST Guide.ipynb'
+          ipython 'NeSST Guide.py'
