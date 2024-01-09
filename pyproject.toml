@@ -37,7 +37,7 @@ tests = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-mypkg = ["*.dat", "*.txt"]
+NeSST = ["*.dat", "*.txt"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
