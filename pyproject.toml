@@ -1,6 +1,40 @@
 [build-system]
-requires = [
-    'setuptools>=42',
-    'wheel'
-    ]
-build-backend = 'setuptools.build_meta'
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "NeSST"
+version = "0.0.3"
+description = "Neutron Scattered Spectra Tool, ICF primary and scattered neutron spectroscopy analysis code"
+readme = "README.md"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Science/Research"
+]
+authors = [
+  { name="Aidan Crilly <ac116@ic.ac.uk>" },
+]
+requires-python = ">=3.0"
+keywords = ["python", "reactor", "fusion", "power", "sankey"]
+dependencies = [
+    "numpy",
+    "scipy"
+]
+
+[project.urls]
+"Homepage" = "https://github.com/aidancrilly/NeSST"
+"Bug Tracker" = "https://github.com/aidancrilly/NeSST/issues"
+
+
+[project.optional-dependencies]
+test = [
+    "pytest", "jupyter", "matplotlib"
+]
+
+[tool.setuptools.package-data]
+"NeSST.data" = ["*.dat", "*.txt"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
