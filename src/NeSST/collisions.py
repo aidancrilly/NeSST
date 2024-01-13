@@ -84,6 +84,18 @@ def gamma_2_beta(g):
 def v_2_beta(v):
 	return v/c
 
+def beta_2_normtime(beta):
+	return 1.0/beta
+
+def beta_2_Ekin(beta,m):
+	Etot = E(m,beta)
+	return Etot-m
+
+def Jacobian_dEdnorm_t(E,m):
+	beta = Ekin_2_beta(E,m)
+	gam  = gamma(beta)
+	return m*(gam*beta)**3
+
 ########################
 # Classical Collisions #
 ########################
@@ -160,3 +172,4 @@ def mu_out(A,Ein,Eout,vf):
 		beta3 = Ekin_2_beta(Eout,Mn)
 		ans   = rel_mu_out(Mn,A*Mn,beta1,beta2,beta3)
 	return ans
+
