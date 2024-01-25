@@ -65,6 +65,9 @@ def yield_from_dt_yield_ratio(reaction,dt_yield,Ti,frac_D=frac_D_default,frac_T=
 # Ballabio fits, see Table III of L. Ballabio et al 1998 Nucl. Fusion 38 1723 #
 ###############################################################################
 
+E0_DT = ((Md+Mt)**2+Mn**2-MHe4**2)/(2*(Md+Mt))-Mn
+E0_DD = ((Md+Md)**2+Mn**2-MHe3**2)/(2*(Md+Md))-Mn
+
 # Returns the mean and variance based on Ballabio
 # Tion in keV
 def DTprimspecmoments(Tion):
@@ -79,7 +82,7 @@ def DTprimspecmoments(Tion):
     # keV to MeV
     mean_shift /= 1e3
 
-    mean = 14.021 + mean_shift
+    mean = E0_DT + mean_shift
 
     # Variance calculation
     omega0 = 177.259
@@ -130,6 +133,9 @@ def DDprimspecmoments(Tion):
     variance /= 1e6
 
     return mean, variance
+
+def neutron_velocity_addition(Ek,u):
+    return col.velocity_addition_to_Ekin(Ek,Mn,u)
 
 #######################################
 # DT scattered spectra initialisation #

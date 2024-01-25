@@ -96,6 +96,13 @@ def Jacobian_dEdnorm_t(E,m):
 	gam  = gamma(beta)
 	return m*(gam*beta)**3
 
+def velocity_addition_to_Ekin(Ek,m,u):
+	beta_frame = u/c
+	beta = Ekin_2_beta(Ek,m)
+	beta = (beta+beta_frame)/(1+beta*beta_frame)
+	Ek = beta_2_Ekin(beta,m)
+	return Ek
+
 ########################
 # Classical Collisions #
 ########################

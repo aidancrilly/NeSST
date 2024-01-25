@@ -22,10 +22,30 @@ def get_transit_time_tophat_IRF(scintillator_thickness):
         return R
     return transit_time_tophat_IRF
 
+def get_transit_time_tophat_w_tGaussian_IRF(scintillator_thickness,gaussian_FWHM,tgaussian_peak_pos):
+    sig = gaussian_FWHM/2.355
+    mu  = (tgaussian_peak_pos**2-sig**2)/tgaussian_peak_pos
+    def filter(t):
+        gauss = t*np.exp(-0.5*((t-mu)/sig)**2)
+        gauss[t < 0] = 0.0
+        return gauss
+    _tophat_IRF = get_transit_time_tophat_IRF(scintillator_thickness)
+    def transit_time_tophat_w_tGaussian_IRF(t_detected,En):
+        R = _tophat_IRF(t_detected,En)
+        t_filter = t_detected-0.5*(t_detected[-1]+t_detected[0])
+        filt = filter(t_filter)
+        R = np.apply_along_axis(lambda m : np.convolve(m,filt,mode='same'), axis=0, arr=R)
+        R_norm = np.sum(R,axis=1)
+        # Catch the zeros
+        R_norm[R_norm == 0] = 1
+        R /= R_norm[:,None]
+        return R
+    return transit_time_tophat_w_tGaussian_IRF
+
 class nToF:
 
     def __init__(self,distance,sensitivity,instrument_response_function
-                 ,normtime_start=5.0,normtime_end=22.0,normtime_N=1000,detector_normtime=None):
+                 ,normtime_start=5.0,normtime_end=20.0,normtime_N=2048,detector_normtime=None):
         self.distance = distance
         self.sensitivity = sensitivity
         self.instrument_response_function = instrument_response_function
@@ -36,10 +56,10 @@ class nToF:
             self.detector_normtime = detector_normtime
         self.detector_time     = self.detector_normtime*self.distance/c
         # Init instrument response values to None
-        self.dEdt = None
-        self.sens = None
-        self.R    = None
-        self.En   = None
+        self.dEdt    = None
+        self.sens    = None
+        self.R       = None
+        self.En_dNdE = None
 
     def compute_instrument_reponse(self,En):
         self.En_dNdE = En
@@ -56,8 +76,16 @@ class nToF:
         return dNdt_interp(self.En_det)
 
     def get_signal(self,En,dNdE):
-        if(not np.array_equal(En,self.En)):
+        if(not np.array_equal(En,self.En_dNdE)):
             self.compute_instrument_reponse(En)
         dNdt = self.get_dNdt(dNdE)
 
         return self.detector_time,self.detector_normtime,np.matmul(self.R,self.sens*dNdt)
+    
+    def get_signal_no_IRF(self,En,dNdE):
+        if(not np.array_equal(En,self.En_dNdE)):
+            self.En_dNdE = En
+            self.dEdt = Jacobian_dEdnorm_t(En,Mn)
+        dNdt = self.get_dNdt(dNdE)
+
+        return self.detector_time,self.detector_normtime,dNdt
