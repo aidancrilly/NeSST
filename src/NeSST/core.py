@@ -53,6 +53,9 @@ def yield_from_dt_yield_ratio(reaction,dt_yield,Ti,frac_D=frac_D_default,frac_T=
         Note that the TT reaction produces two neutrons.
     '''
 
+    if sum([frac_D, frac_T]) != 1.:
+        raise ValueError(f'frac_D ({frac_D_default}) and frac_T ({frac_T_default}) do not sum to 1.')
+
     if reaction == 'tt':
         ratio = (0.5*frac_T*sm.reac_TT(Ti))/(frac_D*sm.reac_DT(Ti))
         ratio = 2.* ratio # Two neutrons are generated for each reaction
