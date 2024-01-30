@@ -3,6 +3,7 @@
 ### ###################################### ###
 
 # Standard libraries
+import warnings
 import numpy as np
 from pathlib import Path
 from scipy.interpolate import interp1d
@@ -54,7 +55,9 @@ def yield_from_dt_yield_ratio(reaction,dt_yield,Ti,frac_D=frac_D_default,frac_T=
     '''
 
     if sum([frac_D, frac_T]) != 1.:
-        raise ValueError(f'frac_D ({frac_D_default}) and frac_T ({frac_T_default}) do not sum to 1.')
+        msg = (f'The frac_D ({frac_D_default}) and frac_T ({frac_T_default}) '
+               'arguments on the yield_from_dt_yield_ration method do not sum to 1.')
+        warnings.warn(msg)
 
     if reaction == 'tt':
         ratio = (0.5*frac_T*sm.reac_TT(Ti))/(frac_D*sm.reac_DT(Ti))
