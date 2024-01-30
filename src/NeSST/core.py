@@ -115,7 +115,7 @@ def DDprimspecmoments(Tion):
     # keV to MeV
     mean_shift /= 1e3
 
-    mean = 2.4495 + mean_shift
+    mean = E0_DD + mean_shift
 
     # Variance calculation
     omega0 = 82.542
