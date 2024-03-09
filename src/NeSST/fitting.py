@@ -1,5 +1,6 @@
 from NeSST.core import *
 from NeSST.constants import *
+from NeSST.utils import *
 
 class DT_fit_function:
 	"""
@@ -46,9 +47,9 @@ class DT_fit_function:
 		self.dNdE_DD = Y_DD*Qb(self.E_sspec ,self.DDmean,self.DDvar) # Brysk shape i.e. Gaussian
 		self.dNdE_TT = Y_TT*dNdE_TT(self.E_sspec,Tion)
 
-		self.I_DT = interp1d(self.E_DTspec,self.dNdE_DT,fill_value=0.0,bounds_error=False)
-		self.I_DD = interp1d(self.E_sspec,self.dNdE_DD)
-		self.I_TT = interp1d(self.E_sspec,self.dNdE_TT)
+		self.I_DT = interpolate_1d(self.E_DTspec,self.dNdE_DT,fill_value=0.0,bounds_error=False)
+		self.I_DD = interpolate_1d(self.E_sspec,self.dNdE_DD)
+		self.I_TT = interpolate_1d(self.E_sspec,self.dNdE_TT)
 
 	def init_symmetric_model(self):
 		"""
@@ -67,8 +68,8 @@ class DT_fit_function:
 			sm.mat_D.calc_n2n_dNdE(self.dNdE_DT,rhoL_func)
 			sm.mat_T.calc_n2n_dNdE(self.dNdE_DT,rhoL_func)
 
-		dNdE_Dn2n = interp1d(self.E_sspec,sm.mat_D.n2n_dNdE,fill_value=0.0,bounds_error=False)
-		dNdE_Tn2n = interp1d(self.E_sspec,sm.mat_T.n2n_dNdE,fill_value=0.0,bounds_error=False)
+		dNdE_Dn2n = interpolate_1d(self.E_sspec,sm.mat_D.n2n_dNdE,fill_value=0.0,bounds_error=False)
+		dNdE_Tn2n = interpolate_1d(self.E_sspec,sm.mat_T.n2n_dNdE,fill_value=0.0,bounds_error=False)
 
 		if(self.ion_kinematics):
 			def model(E,rhoL,vbar,dv,fT,fD,Yn):
@@ -94,11 +95,11 @@ class DT_fit_function:
 					E_nT0    = ((sm.A_T-1.0)/(sm.A_T+1.0))**2*self.DTmean
 					dE_nT    = np.sqrt(8.0*sm.A_T*E_nT0/(sm.A_T+1.0)**2*T_MeV)
 					E_nD0    = ((sm.A_D-1.0)/(sm.A_D+1.0))**2*self.DTmean
-					dE_nD    = np.sqrt(8.0*sm.A_D*E_nD0/(A_D+1.0)**2*T_MeV)
+					dE_nD    = np.sqrt(8.0*sm.A_D*E_nD0/(sm.A_D+1.0)**2*T_MeV)
 
 
-				dNdE_nT = interp1d(self.E_sspec,dNdE_nT,fill_value=0.0,bounds_error=False)
-				dNdE_nD = interp1d(self.E_sspec,dNdE_nD,fill_value=0.0,bounds_error=False)
+				dNdE_nT = interpolate_1d(self.E_sspec,dNdE_nT,fill_value=0.0,bounds_error=False)
+				dNdE_nD = interpolate_1d(self.E_sspec,dNdE_nD,fill_value=0.0,bounds_error=False)
 
 				dNdE_tot = A_1S*(fT*dNdE_nT(E)+fD*dNdE_nD(E)+fD*dNdE_Dn2n(E)+fT*dNdE_Tn2n(E))
 				return Yn*(dNdE_tot+(fD/fT)*(frac_T_default/frac_D_default)*self.I_DD(E)+(fT/fD)*(frac_D_default/frac_T_default)*self.I_TT(E))
@@ -118,7 +119,7 @@ class DT_fit_function:
 		                                       (1.0+self.P1_arr[None,None,:]*sm.mat_T.n2n_mu[:,None,None])
 		                                       ,sm.mat_T.n2n_mu,axis=0)
 
-		sm.mat_T.n2n_dNdE_mode1 = interp2d(self.E_sspec,self.P1_arr,sm.mat_T.n2n_dNdE_mode1.T,bounds_error=False)
+		sm.mat_T.n2n_dNdE_mode1 = interpolate_2d(self.E_sspec,self.P1_arr,sm.mat_T.n2n_dNdE_mode1.T,bounds_error=False)
 
 		# D(n,2n)
 		sm.mat_D.n2n_ddx.rgrid_IE = np.trapz(sm.mat_D.n2n_ddx.rgrid*self.dNdE_DT[:,None,None],self.E_DTspec,axis=0)
@@ -126,21 +127,21 @@ class DT_fit_function:
 		                                       (1.0+self.P1_arr[None,None,:]*sm.mat_D.n2n_mu[:,None,None])
 		                                       ,sm.mat_D.n2n_mu,axis=0)
 
-		sm.mat_D.n2n_dNdE_mode1 = interp2d(self.E_sspec,self.P1_arr,sm.mat_D.n2n_dNdE_mode1.T,bounds_error=False)
+		sm.mat_D.n2n_dNdE_mode1 = interpolate_2d(self.E_sspec,self.P1_arr,sm.mat_D.n2n_dNdE_mode1.T,bounds_error=False)
 
 		# nT
 		M_mode1 = np.trapz((1.0+self.P1_arr[None,None,None,:]*sm.mat_T.full_scattering_mu[:,:,:,None])
 		                                *sm.mat_T.full_scattering_M[:,:,:,None]
 		                                *self.dNdE_DT[None,None,:,None],self.E_DTspec,axis=2)
 
-		sm.mat_T.M_mode1_interp = interp1d(self.P1_arr,M_mode1,axis=-1,bounds_error=False)
+		sm.mat_T.M_mode1_interp = interpolate_1d(self.P1_arr,M_mode1,axis=-1,bounds_error=False)
 
 		# nD
 		M_mode1 = np.trapz((1.0+self.P1_arr[None,None,None,:]*sm.mat_D.full_scattering_mu[:,:,:,None])
 		                                *sm.mat_D.full_scattering_M[:,:,:,None]
 		                                *self.dNdE_DT[None,None,:,None],self.E_DTspec,axis=2)
 
-		sm.mat_D.M_mode1_interp = interp1d(self.P1_arr,M_mode1,axis=-1,bounds_error=False)
+		sm.mat_D.M_mode1_interp = interpolate_1d(self.P1_arr,M_mode1,axis=-1,bounds_error=False)
 
 		if(self.ion_kinematics):
 			def model(E,rhoL,P1,vbar,dv,fT,fD,Yn):

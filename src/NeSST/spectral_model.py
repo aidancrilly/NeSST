@@ -1,10 +1,9 @@
 # Backend of spectral model
 
 import numpy as np
-from scipy.interpolate import interp1d
-from scipy.interpolate import interp2d
 
 from NeSST.constants import *
+from NeSST.utils import *
 import NeSST.collisions as col
 import NeSST.cross_sections as xs
 
@@ -88,15 +87,15 @@ class material_data:
             print("Material label "+self.label+" not recognised")
 
         elastic_xsec_data = self.read_ENDF_xsec_file(elastic_xsec_file)
-        self.sigma = interp1d(elastic_xsec_data[:,0],elastic_xsec_data[:,1],kind='linear',bounds_error=False,fill_value=0.0)
+        self.sigma = interpolate_1d(elastic_xsec_data[:,0],elastic_xsec_data[:,1],kind='linear',bounds_error=False,fill_value=0.0)
 
         dx_data = np.loadtxt(elastic_dxsec_file,skiprows = 6)
         self.dx_spline = [unity]
         for i in range(1,dx_data.shape[1]):
-            self.dx_spline.append(interp1d(dx_data[:,0]/1e6,dx_data[:,i],kind='linear',bounds_error=False,fill_value=0.0))
+            self.dx_spline.append(interpolate_1d(dx_data[:,0]/1e6,dx_data[:,i],kind='linear',bounds_error=False,fill_value=0.0))
 
         tot_xsec_data = self.read_ENDF_xsec_file(tot_xsec_file)
-        self.sigma_tot = interp1d(tot_xsec_data[:,0],tot_xsec_data[:,1],kind='linear',bounds_error=False,fill_value=0.0)
+        self.sigma_tot = interpolate_1d(tot_xsec_data[:,0],tot_xsec_data[:,1],kind='linear',bounds_error=False,fill_value=0.0)
 
         if(self.l_n2n):
             if(n2n_type == 0):
@@ -106,11 +105,11 @@ class material_data:
 
         if(self.inelastic):
             inelastic_xsec_data = self.read_ENDF_xsec_file(inelastic_xsec_file)
-            self.isigma = interp1d(inelastic_xsec_data[:,0],inelastic_xsec_data[:,1],kind='linear',bounds_error=False,fill_value=0.0)
+            self.isigma = interpolate_1d(inelastic_xsec_data[:,0],inelastic_xsec_data[:,1],kind='linear',bounds_error=False,fill_value=0.0)
             idx_data = np.loadtxt(inelastic_dxsec_file,skiprows = 6)
             self.idx_spline = [unity]
             for i in range(1,idx_data.shape[1]):
-                self.idx_spline.append(interp1d(idx_data[:,0]/1e6,idx_data[:,i],kind='linear',bounds_error=False,fill_value=0.0))
+                self.idx_spline.append(interpolate_1d(idx_data[:,0]/1e6,idx_data[:,i],kind='linear',bounds_error=False,fill_value=0.0))
 
         self.Ein  = None       
         self.Eout = None
@@ -257,7 +256,7 @@ class material_data:
         gauss = np.exp(-(self.vvec-vbar)**2/2.0/(dv**2))/np.sqrt(2*np.pi)/dv
         M_v   = np.trapz(self.M_prim*gauss[None,:],self.vvec,axis=1)
         # Interpolate to energy points E
-        interp = interp1d(self.Eout,M_v,kind='linear',copy=False,bounds_error=False)
+        interp = interpolate_1d(self.Eout,M_v,kind='linear',copy=False,bounds_error=False)
         return interp(E)
 
 
@@ -277,12 +276,12 @@ TT_data      = np.loadtxt(xs.xsec_dir + "TT_spec_temprange.txt")
 TT_spec_E    = TT_data[:,0]
 TT_spec_T    = np.linspace(1.0,20.0,40)
 TT_spec_dNdE = TT_data[:,1:]
-TT_2dinterp  = interp2d(TT_spec_E,TT_spec_T,TT_spec_dNdE.T,kind='linear',bounds_error=False,fill_value=0.0)
+TT_2dinterp  = interpolate_2d(TT_spec_E,TT_spec_T,TT_spec_dNdE.T,kind='linear',bounds_error=False,fill_value=0.0)
 
 # TT reactivity
 # TT_reac_data = np.loadtxt(xs.xsec_dir + "TT_reac_McNally.dat")  # sigmav im m^3/s   # From https://www.osti.gov/servlets/purl/5992170 - N.B. not in agreement with experimental measurements
 TT_reac_data = np.loadtxt(xs.xsec_dir + "TT_reac_ENDF.dat")       # sigmav im m^3/s   # From ENDF
-TT_reac_spline = interp1d(TT_reac_data[:,0],TT_reac_data[:,1],kind='cubic',bounds_error=False,fill_value=0.0)
+TT_reac_spline = interpolate_1d(TT_reac_data[:,0],TT_reac_data[:,1],kind='cubic',bounds_error=False,fill_value=0.0)
 
 ########################
 # Primary reactivities #
@@ -314,8 +313,8 @@ Dn2n_matrix = np.loadtxt(xs.xsec_dir + "Dn2n_matrix.dat")
 Tn2n_matrix_1 = np.loadtxt(xs.xsec_dir + "Tn2n_matrix_ENDFLAW6.dat")
 Tn2n_matrix_2 = np.loadtxt(xs.xsec_dir + "Tn2n_matrix_CENDL_transform.dat")
 # 2D interpolation functions
-Dn2n_2dinterp = interp2d(E1_n2n,E2_n2n,Dn2n_matrix.T,kind='linear',bounds_error=False,fill_value=0.0)
-Tn2n_1_2dinterp = interp2d(E1_n2n,E2_n2n,Tn2n_matrix_1.T,kind='linear',bounds_error=False,fill_value=0.0)
-Tn2n_2_2dinterp = interp2d(E1_n2n,E2_n2n,Tn2n_matrix_2.T,kind='linear',bounds_error=False,fill_value=0.0)
+Dn2n_2dinterp = interpolate_2d(E1_n2n,E2_n2n,Dn2n_matrix.T,kind='linear',bounds_error=False,fill_value=0.0)
+Tn2n_1_2dinterp = interpolate_2d(E1_n2n,E2_n2n,Tn2n_matrix_1.T,kind='linear',bounds_error=False,fill_value=0.0)
+Tn2n_2_2dinterp = interpolate_2d(E1_n2n,E2_n2n,Tn2n_matrix_2.T,kind='linear',bounds_error=False,fill_value=0.0)
 # Deprecated n2n matrix representation
 ############################################################################
