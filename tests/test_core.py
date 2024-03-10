@@ -13,9 +13,9 @@ def test_DTprimspecmoments_mean():
 def test_DDprimspecmoments_mean():
     # checks the mean value of the neutron emitted by DD fusion
 
-    DTmean, _ = nst.DDprimspecmoments(Tion=5.0)  # units KeV
+    DDmean, _ = nst.DDprimspecmoments(Tion=5.0)  # units KeV
 
-    assert DTmean == pytest.approx(2.5, abs=0.1)  # units MeV
+    assert DDmean == pytest.approx(2.5, abs=0.1)  # units MeV
 
 def test_DDprimspecmoments_mean_with_tion():
     # checks the energy of the neutron increases with ion temperature
