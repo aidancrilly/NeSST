@@ -17,6 +17,7 @@ def test_DDprimspecmoments_mean():
 
     assert DDmean == pytest.approx(2.5, abs=0.1)  # units MeV
 
+
 def test_DDprimspecmoments_mean_with_tion():
     # checks the energy of the neutron increases with ion temperature
 
@@ -24,6 +25,7 @@ def test_DDprimspecmoments_mean_with_tion():
     DDmean_hot, _ = nst.DDprimspecmoments(Tion=10.0)  # units KeV
 
     assert DDmean_cold < DDmean_hot  # units MeV
+
 
 def test_DTprimspecmoments_mean_with_tion():
     # checks the energy of the neutron increases with ion temperature
