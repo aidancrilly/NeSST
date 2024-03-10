@@ -6,8 +6,6 @@
 import warnings
 import numpy as np
 from pathlib import Path
-from scipy.interpolate import interp1d
-from scipy.interpolate import interp2d
 from scipy.optimize import curve_fit
 # NeSST libraries
 from NeSST.constants import *

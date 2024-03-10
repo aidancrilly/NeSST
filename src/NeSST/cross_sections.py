@@ -107,7 +107,7 @@ class doubledifferentialcrosssection_data:
             for i in range(self.NEin_xsec):
                 self.Ein_xsec[i] = ENDF_format(E[i])/1e6
                 self.xsec[i]     = ENDF_format(x[i])
-        self.xsec_interp = interpolate_1d(self.Ein_xsec,self.xsec,kind='linear',bounds_error=False,fill_value=0.0)
+        self.xsec_interp = interpolate_1d(self.Ein_xsec,self.xsec,method='linear',bounds_error=False,fill_value=0.0)
 
     def read_ddx_file(self):
         with open(self.fileddx,"r") as f:
@@ -156,7 +156,7 @@ class doubledifferentialcrosssection_data:
                         for i in range(NEout):
                             self.Eout_ddx[(Ecounter-1,Ccounter-1)][i] = ENDF_format(E[i])/1e6
                             self.f_ddx[(Ecounter-1,Ccounter-1)][i]    = ENDF_format(x[i])*1e6
-                        self.f_ddx_interp[(Ecounter-1,Ccounter-1)] = interpolate_1d(self.Eout_ddx[(Ecounter-1,Ccounter-1)],self.f_ddx[(Ecounter-1,Ccounter-1)],kind='linear',bounds_error=False,fill_value=0.0)
+                        self.f_ddx_interp[(Ecounter-1,Ccounter-1)] = interpolate_1d(self.Eout_ddx[(Ecounter-1,Ccounter-1)],self.f_ddx[(Ecounter-1,Ccounter-1)],method='linear',bounds_error=False,fill_value=0.0)
                         self.Emax_ddx[(Ecounter-1,Ccounter-1)] = np.max(self.Eout_ddx[(Ecounter-1,Ccounter-1)])
                         read_data = False
                     # Read incoming energy
@@ -200,9 +200,9 @@ class doubledifferentialcrosssection_data:
             self.Eout_ddx[(1,i)]  = data[idx-NEout:idx,1]
             # From barns to mbarns, from sr to per cosine, from number of neutrons to cross section
             self.f_ddx[(1,i)]     = 0.5*(2*np.pi)*data[idx-NEout:idx,0]/1e3
-            self.f_ddx_interp[(0,i)] = interpolate_1d(self.Eout_ddx[(0,i)],self.f_ddx[(0,i)],kind='linear',bounds_error=False,fill_value=0.0)
+            self.f_ddx_interp[(0,i)] = interpolate_1d(self.Eout_ddx[(0,i)],self.f_ddx[(0,i)],method='linear',bounds_error=False,fill_value=0.0)
             self.Emax_ddx[(0,i)] = np.max(self.Eout_ddx[(0,i)])
-            self.f_ddx_interp[(1,i)] = interpolate_1d(self.Eout_ddx[(1,i)],self.f_ddx[(1,i)],kind='linear',bounds_error=False,fill_value=0.0)
+            self.f_ddx_interp[(1,i)] = interpolate_1d(self.Eout_ddx[(1,i)],self.f_ddx[(1,i)],method='linear',bounds_error=False,fill_value=0.0)
             self.Emax_ddx[(1,i)] = np.max(self.Eout_ddx[(1,i)])
             idx -= NEout
             i   += 1
@@ -317,7 +317,7 @@ class doubledifferentialcrosssection_LAW6:
             for i in range(self.NEin_xsec):
                 self.Ein_xsec[i] = ENDF_format(E[i])/1e6
                 self.xsec[i]     = ENDF_format(x[i])
-        self.xsec_interp = interpolate_1d(self.Ein_xsec,self.xsec,kind='linear',bounds_error=False,fill_value=0.0)
+        self.xsec_interp = interpolate_1d(self.Ein_xsec,self.xsec,method='linear',bounds_error=False,fill_value=0.0)
 
     def ddx(self,Ein,mu,Eout):
         E_star = Ein*self.A_i*self.A_e/(self.A_t+self.A_i)**2

@@ -119,7 +119,7 @@ class DT_fit_function:
 		                                       (1.0+self.P1_arr[None,None,:]*sm.mat_T.n2n_mu[:,None,None])
 		                                       ,sm.mat_T.n2n_mu,axis=0)
 
-		sm.mat_T.n2n_dNdE_mode1 = interpolate_2d(self.E_sspec,self.P1_arr,sm.mat_T.n2n_dNdE_mode1.T,bounds_error=False)
+		sm.mat_T.n2n_dNdE_mode1 = interpolate_2d(self.E_sspec,self.P1_arr,sm.mat_T.n2n_dNdE_mode1,bounds_error=False)
 
 		# D(n,2n)
 		sm.mat_D.n2n_ddx.rgrid_IE = np.trapz(sm.mat_D.n2n_ddx.rgrid*self.dNdE_DT[:,None,None],self.E_DTspec,axis=0)
@@ -127,7 +127,7 @@ class DT_fit_function:
 		                                       (1.0+self.P1_arr[None,None,:]*sm.mat_D.n2n_mu[:,None,None])
 		                                       ,sm.mat_D.n2n_mu,axis=0)
 
-		sm.mat_D.n2n_dNdE_mode1 = interpolate_2d(self.E_sspec,self.P1_arr,sm.mat_D.n2n_dNdE_mode1.T,bounds_error=False)
+		sm.mat_D.n2n_dNdE_mode1 = interpolate_2d(self.E_sspec,self.P1_arr,sm.mat_D.n2n_dNdE_mode1,bounds_error=False)
 
 		# nT
 		M_mode1 = np.trapz((1.0+self.P1_arr[None,None,None,:]*sm.mat_T.full_scattering_mu[:,:,:,None])
