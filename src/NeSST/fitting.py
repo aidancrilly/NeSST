@@ -1,3 +1,6 @@
+from scipy.interpolate import interp1d
+from scipy.interpolate import interp2d
+
 from NeSST.core import *
 from NeSST.constants import *
 

@@ -5,10 +5,7 @@
 # Standard libraries
 import warnings
 import numpy as np
-from pathlib import Path
-from scipy.interpolate import interp1d
-from scipy.interpolate import interp2d
-from scipy.optimize import curve_fit
+
 # NeSST libraries
 from NeSST.constants import *
 import NeSST.collisions as col
@@ -46,7 +43,13 @@ def Qballabio(Ein,mean,variance):
 def dNdE_TT(E,Tion):
     return sm.TT_2dinterp(E,Tion)
 
-def yield_from_dt_yield_ratio(reaction,dt_yield,Ti,frac_D=frac_D_default,frac_T=frac_T_default):
+def yield_from_dt_yield_ratio(
+    reaction: str,
+    dt_yield: float,
+    Tion: float,
+    frac_D: float = frac_D_default,
+    frac_T: float = frac_T_default
+):
     ''' Reactivity ratio to predict yield from the DT yield assuming same volume and burn time
         rate_ij = (f_{i}*f_{j}*sigmav_{i,j}(T))/(1+delta_{i,j})  # dN/dVdt
         yield_ij = (rate_ij/rate_dt)*yield_dt
@@ -60,10 +63,10 @@ def yield_from_dt_yield_ratio(reaction,dt_yield,Ti,frac_D=frac_D_default,frac_T=
         warnings.warn(msg)
 
     if reaction == 'tt':
-        ratio = (0.5*frac_T*sm.reac_TT(Ti))/(frac_D*sm.reac_DT(Ti))
+        ratio = (0.5*frac_T*sm.reac_TT(Tion))/(frac_D*sm.reac_DT(Tion))
         ratio = 2.* ratio # Two neutrons are generated for each reaction
     if reaction == 'dd':
-        ratio = (0.5*frac_D*sm.reac_DD(Ti))/(frac_T*sm.reac_DT(Ti))
+        ratio = (0.5*frac_D*sm.reac_DD(Tion))/(frac_T*sm.reac_DT(Tion))
 
     return ratio*dt_yield
 
@@ -73,7 +76,7 @@ def yield_from_dt_yield_ratio(reaction,dt_yield,Ti,frac_D=frac_D_default,frac_T=
 
 # Returns the mean and variance based on Ballabio
 # Tion in keV
-def DTprimspecmoments(Tion):
+def DTprimspecmoments(Tion: float):
     # Mean calculation
     a1 = 5.30509
     a2 = 2.4736e-3
@@ -106,7 +109,7 @@ def DTprimspecmoments(Tion):
 
 # Returns the mean and variance based on Ballabio
 # Tion in keV
-def DDprimspecmoments(Tion):
+def DDprimspecmoments(Tion: float):
     # Mean calculation
     a1 = 4.69515
     a2 = -0.040729
@@ -141,13 +144,17 @@ def DDprimspecmoments(Tion):
 # DT scattered spectra initialisation #
 #######################################
 
-def init_DT_scatter(Eout,Ein):
+def init_DT_scatter(Eout: float, Ein: float):
     sm.mat_D.init_energy_grids(Eout,Ein)
     sm.mat_T.init_energy_grids(Eout,Ein)
     sm.mat_D.init_station_scatter_matrices()
     sm.mat_T.init_station_scatter_matrices()
 
-def init_DT_ionkin_scatter(varr,nT=False,nD=False):
+def init_DT_ionkin_scatter(
+    varr,
+    nT: bool = False,
+    nD: bool = False
+):
     if(nT):
         if(sm.mat_T.Ein is None):
             print("nT - Needed to initialise energy grids - see init_DT_scatter")
@@ -159,7 +166,12 @@ def init_DT_ionkin_scatter(varr,nT=False,nD=False):
         else:
             sm.mat_D.full_scattering_matrix_create(varr)
 
-def calc_DT_ionkin_primspec_rhoL_integral(I_E,rhoL_func=None,nT=False,nD=False):
+def calc_DT_ionkin_primspec_rhoL_integral(
+    I_E,
+    rhoL_func=None,
+    nT: bool = False,
+    nD: bool = False
+):
     if(nT):
         if(sm.mat_T.vvec is None):
             print("nT - Needed to initialise velocity grid - see init_DT_ionkin_scatter")

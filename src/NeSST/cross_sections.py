@@ -101,7 +101,6 @@ class doubledifferentialcrosssection_data:
             self.NEin_xsec = int(file.split()[0])
             self.Ein_xsec  = np.zeros(self.NEin_xsec)
             self.xsec      = np.zeros(self.NEin_xsec)
-            counter        = 0
             data = "".join(file.split("\n")[5:]).split()
             E = data[::2]
             x = data[1::2]
@@ -311,7 +310,6 @@ class doubledifferentialcrosssection_LAW6:
             self.NEin_xsec = int(file.split()[0])
             self.Ein_xsec  = np.zeros(self.NEin_xsec)
             self.xsec      = np.zeros(self.NEin_xsec)
-            counter        = 0
             data = "".join(file.split("\n")[5:]).split()
             E = data[::2]
             x = data[1::2]
