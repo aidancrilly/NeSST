@@ -46,7 +46,7 @@ def Qballabio(Ein,mean,variance):
 def dNdE_TT(E,Tion):
     return sm.TT_2dinterp(E,Tion)
 
-def yield_from_dt_yield_ratio(reaction,dt_yield,Ti,frac_D=frac_D_default,frac_T=frac_T_default):
+def yield_from_dt_yield_ratio(reaction,dt_yield,Tion,frac_D=frac_D_default,frac_T=frac_T_default):
     ''' Reactivity ratio to predict yield from the DT yield assuming same volume and burn time
         rate_ij = (f_{i}*f_{j}*sigmav_{i,j}(T))/(1+delta_{i,j})  # dN/dVdt
         yield_ij = (rate_ij/rate_dt)*yield_dt
@@ -60,10 +60,10 @@ def yield_from_dt_yield_ratio(reaction,dt_yield,Ti,frac_D=frac_D_default,frac_T=
         warnings.warn(msg)
 
     if reaction == 'tt':
-        ratio = (0.5*frac_T*sm.reac_TT(Ti))/(frac_D*sm.reac_DT(Ti))
+        ratio = (0.5*frac_T*sm.reac_TT(Tion))/(frac_D*sm.reac_DT(Tion))
         ratio = 2.* ratio # Two neutrons are generated for each reaction
     if reaction == 'dd':
-        ratio = (0.5*frac_D*sm.reac_DD(Ti))/(frac_T*sm.reac_DT(Ti))
+        ratio = (0.5*frac_D*sm.reac_DD(Tion))/(frac_T*sm.reac_DT(Tion))
 
     return ratio*dt_yield
 
