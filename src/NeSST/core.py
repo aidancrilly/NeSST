@@ -3,6 +3,7 @@
 ### ###################################### ###
 
 # Standard libraries
+import typing
 import warnings
 import numpy as np
 from pathlib import Path
@@ -74,18 +75,37 @@ def yield_from_dt_yield_ratio(reaction,dt_yield,Ti,frac_D=frac_D_default,frac_T=
 # Returns the mean and variance based on Ballabio
 # Tion in keV
 def DTprimspecmoments(Tion):
+    """Calculates the mean energy and the variance of the neutron energy
+    emitted during DT fusion accounting for temperature of the incident ions.
+    Based on Ballabio fits, see Table III of L. Ballabio et al 1998 Nucl.
+    Fusion 38 1723
+
+    Args:
+        Tion (float): the temperature of the ions in eV
+
+    Raises:
+        ValueError: if the Tion is below 0 then a ValueError is raised
+
+    Returns:
+        typing.Tuple[float, float]: the mean neutron energy in eV and variance in eV
+    """
+
+    if Tion < 0:
+        raise ValueError("Tion (temperature of the ions) can not be below 0")
+
     # Mean calculation
     a1 = 5.30509
     a2 = 2.4736e-3
     a3 = 1.84
     a4 = 1.3818
 
-    mean_shift = a1*Tion**(0.6666666666)/(1.0+a2*Tion**a3)+a4*Tion
+    Tion_kev = Tion / 1e3  # Ballabio equation accepts KeV units
+    mean_shift = (
+        a1 * Tion_kev ** (0.6666666666) / (1.0 + a2 * Tion_kev**a3) + a4 * Tion_kev
+    )
+    mean_shift *= 1e3  # converting back to eV
 
-    # keV to MeV
-    mean_shift /= 1e3
-
-    mean = 14.021 + mean_shift
+    mean = 14.021e6 + mean_shift
 
     # Variance calculation
     omega0 = 177.259
@@ -94,31 +114,51 @@ def DTprimspecmoments(Tion):
     a3 = 1.78
     a4 = 8.7691e-5
 
-    delta = a1*Tion**(0.6666666666)/(1.0+a2*Tion**a3)+a4*Tion
+    delta = a1 * Tion_kev ** (0.6666666666) / (1.0 + a2 * Tion_kev**a3) + a4 * Tion_kev
 
-    C = omega0*(1+delta)
-    FWHM2    = C**2*Tion
-    variance = FWHM2/(2.35482)**2
-    # keV^2 to MeV^2
-    variance /= 1e6
+    C = omega0 * (1 + delta)
+    FWHM2 = C**2 * Tion_kev
+    variance = FWHM2 / (2.3548200450309493) ** 2
+    variance *= 1e6  # converting keV^2 back to eV^2
 
     return mean, variance
 
 # Returns the mean and variance based on Ballabio
 # Tion in keV
-def DDprimspecmoments(Tion):
+
+
+def DDprimspecmoments(Tion: float) -> typing.Tuple[float, float]:
+    """Calculates the mean energy and the variance of the neutron energy
+    emitted during DD fusion accounting for temperature of the incident ions.
+    Based on Ballabio fits, see Table III of L. Ballabio et al 1998 Nucl.
+    Fusion 38 1723
+
+    Args:
+        Tion (float): the temperature of the ions in eV
+
+    Raises:
+        ValueError: if the Tion is below 0 then a ValueError is raised
+
+    Returns:
+        typing.Tuple[float, float]: the mean neutron energy in eV and variance in eV
+    """
+
+    if Tion < 0:
+        raise ValueError("Tion (temperature of the ions) can not be below 0")
+
     # Mean calculation
     a1 = 4.69515
     a2 = -0.040729
     a3 = 0.47
     a4 = 0.81844
 
-    mean_shift = a1*Tion**(0.6666666666)/(1.0+a2*Tion**a3)+a4*Tion
-
-    # keV to MeV
-    mean_shift /= 1e3
-
-    mean = 2.4495 + mean_shift
+    Tion_kev = Tion / 1e3  # Ballabio equation accepts KeV units
+    mean_shift = (
+        a1 * Tion_kev ** (0.6666666666) / (1.0 + a2 * Tion_kev**a3) + a4 * Tion_kev
+    )
+    mean_shift *= 1e3  # converting back to eV
+    print('mean_shift', mean_shift)
+    mean = 2.4495e6 + mean_shift
 
     # Variance calculation
     omega0 = 82.542
@@ -127,13 +167,12 @@ def DDprimspecmoments(Tion):
     a3 = 0.49
     a4 = 7.9460e-4
 
-    delta = a1*Tion**(0.6666666666)/(1.0+a2*Tion**a3)+a4*Tion
+    delta = a1 * Tion_kev ** (0.6666666666) / (1.0 + a2 * Tion_kev**a3) + a4 * Tion_kev
 
-    C = omega0*(1+delta)
-    FWHM2    = C**2*Tion
-    variance = FWHM2/(2.35482)**2
-    # keV^2 to MeV^2
-    variance /= 1e6
+    C = omega0 * (1 + delta)
+    FWHM2 = C**2 * Tion_kev
+    variance = FWHM2 / (2.3548200450309493) ** 2
+    variance *= 1e6  # converting keV^2 back to eV^2
 
     return mean, variance
 
