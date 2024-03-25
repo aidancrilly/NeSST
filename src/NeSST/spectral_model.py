@@ -199,8 +199,6 @@ class material_data:
 
     def rhoR_2_A1s(self,rhoR):
         mbar  = self.A*Mn_kg
-        # barns to m^2
-        sigmabarn = 1e-28
         A_1S = rhoR*(sigmabarn/mbar)
         return A_1S
 
