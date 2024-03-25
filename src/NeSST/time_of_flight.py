@@ -3,6 +3,20 @@ from NeSST.collisions import *
 import numpy as np
 from scipy.interpolate import interp1d
 
+def get_power_law_NLO(k,p):
+    """
+    Pulse height function H = k E^p
+
+    dH/dE = p k E ^ (p-1)
+
+    If we assume energy deposition is linear in E then:
+
+    A(E) = E/(dH/dE)
+    """
+    def power_law_NLO(E):
+        return E/(p*k*E**(p-1))
+    return power_law_NLO
+
 def get_unity_sensitivity():
     def unity_sensitivity(En):
         return np.ones_like(En)
