@@ -7,6 +7,9 @@ on:
       - master
   pull_request:
 
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
 jobs:
   testing:
     runs-on: ubuntu-latest
@@ -23,6 +26,7 @@ jobs:
       - name: install package with testing dependencies
         run: |
           pip install .[test]
+          pytest
 
       - name: run examples
         run: |

@@ -57,7 +57,7 @@ class material_data:
             n2n_type           = 0
             n2n_xsec_file      = xs.xsec_dir + "ENDF_t(n,2n)_xsec.dat"
             n2n_dxsec_file     = None
-            n2n_params         = [1.0e0,1.0e0,2.990140e0,1.0e0,3.996800e0,-6.25756e0]
+            n2n_params         = [1.0e0,1.0e0,2.990140e0,1.0e0,3.996800e0,-6.25756e6]
 
             tot_xsec_file      = xs.xsec_dir + "ENDF_nH3_totxsec.dat"
         elif(self.label == '12C'):
@@ -66,7 +66,7 @@ class material_data:
             elastic_dxsec_file = xs.xsec_dir + "CENDL_C12(n,elastic)_dx.dat"
 
             self.inelastic     = True
-            self.inelastic_Q   = -4.43890 # MeV
+            self.inelastic_Q   = -4.43890e6 # eV
             inelastic_xsec_file  = xs.xsec_dir + "CENDL_C12(n,n1)_xsec.dat"
             inelastic_dxsec_file = xs.xsec_dir + "CENDL_C12(n,n1)_dx.dat"
 
@@ -93,7 +93,7 @@ class material_data:
         dx_data = np.loadtxt(elastic_dxsec_file,skiprows = 6)
         self.dx_spline = [unity]
         for i in range(1,dx_data.shape[1]):
-            self.dx_spline.append(interp1d(dx_data[:,0]/1e6,dx_data[:,i],kind='linear',bounds_error=False,fill_value=0.0))
+            self.dx_spline.append(interp1d(dx_data[:,0],dx_data[:,i],kind='linear',bounds_error=False,fill_value=0.0))
 
         tot_xsec_data = self.read_ENDF_xsec_file(tot_xsec_file)
         self.sigma_tot = interp1d(tot_xsec_data[:,0],tot_xsec_data[:,1],kind='linear',bounds_error=False,fill_value=0.0)
@@ -110,7 +110,7 @@ class material_data:
             idx_data = np.loadtxt(inelastic_dxsec_file,skiprows = 6)
             self.idx_spline = [unity]
             for i in range(1,idx_data.shape[1]):
-                self.idx_spline.append(interp1d(idx_data[:,0]/1e6,idx_data[:,i],kind='linear',bounds_error=False,fill_value=0.0))
+                self.idx_spline.append(interp1d(idx_data[:,0],idx_data[:,i],kind='linear',bounds_error=False,fill_value=0.0))
 
         self.Ein  = None       
         self.Eout = None
@@ -126,7 +126,7 @@ class material_data:
             E = data[::2]
             x = data[1::2]
             for i in range(NEin_xsec):
-                elastic_xsec_data[i,0] = xs.ENDF_format(E[i])/1e6
+                elastic_xsec_data[i,0] = xs.ENDF_format(E[i])
                 elastic_xsec_data[i,1] = xs.ENDF_format(x[i])
         return elastic_xsec_data
 
@@ -198,11 +198,7 @@ class material_data:
         self.n2n_dNdE = np.trapz(I_E[:,None]*grid_dNdE,self.Ein,axis=0)
 
     def rhoR_2_A1s(self,rhoR):
-        # Mass of neutron in milligrams
-        mn_mg = 1.674927485e-21
-        mbar  = self.A*mn_mg
-        # barns to cm^2
-        sigmabarn = 1e-24
+        mbar  = self.A*Mn_kg
         A_1S = rhoR*(sigmabarn/mbar)
         return A_1S
 
@@ -211,7 +207,7 @@ class material_data:
     #     Ei,Eo  = np.meshgrid(Ein,Eout)
     #     muc    = col.muc(self.A,Ei,Eo,1.0,-1.0,0.0)
     #     sigma  = sigma_nT(Ein)
-    #     E_vec  = 1e6*Ein
+    #     E_vec  = Ein
     #     Tlcoeff,Nl     = interp_Tlcoeff(self.dx_spline,E_vec)
     #     Tlcoeff_interp = 0.5*(2*np.arange(0,Nl)+1)*Tlcoeff
     #     mu0 = col.mu_out(self.A,Ei,Eo,0.0)
@@ -273,10 +269,11 @@ available_materials_dict = {"H" : mat_H, "D" : mat_D, "T" : mat_T, "12C" : mat_1
 # Load in TT spectrum
 # Based on Appelbe, stationary emitter, temperature range between 1 and 10 keV
 # https://www.sciencedirect.com/science/article/pii/S1574181816300295
+# N.B. requires some unit conversion to uniform eV
 TT_data      = np.loadtxt(xs.xsec_dir + "TT_spec_temprange.txt")
-TT_spec_E    = TT_data[:,0]
-TT_spec_T    = np.linspace(1.0,20.0,40)
-TT_spec_dNdE = TT_data[:,1:]
+TT_spec_E    = TT_data[:,0]*1e6             # MeV to eV
+TT_spec_T    = np.linspace(1.0,20.0,40)*1e3 # keV to eV
+TT_spec_dNdE = TT_data[:,1:]/1e6            # 1/MeV to 1/eV
 TT_2dinterp  = interp2d(TT_spec_E,TT_spec_T,TT_spec_dNdE.T,kind='linear',bounds_error=False,fill_value=0.0)
 
 # TT reactivity
@@ -290,26 +287,29 @@ TT_reac_spline = interp1d(TT_reac_data[:,0],TT_reac_data[:,1],kind='cubic',bound
 
 # Bosh Hale DT and DD reactivities
 # Taken from Atzeni & Meyer ter Vehn page 19
-# Output in m3/s, Ti in keV
+# Output in m3/s, Ti in eV
 def reac_DT(Ti):
+    Ti_kev = Ti/1e3
     C1 = 643.41e-22
-    xi = 6.6610*Ti**(-0.333333333)
-    eta = 1-np.polyval([-0.10675e-3,4.6064e-3,15.136e-3,0.0e0],Ti)/np.polyval([0.01366e-3,13.5e-3,75.189e-3,1.0e0],Ti)
+    xi = 6.6610*Ti_kev**(-0.333333333)
+    eta = 1-np.polyval([-0.10675e-3,4.6064e-3,15.136e-3,0.0e0],Ti_kev)/np.polyval([0.01366e-3,13.5e-3,75.189e-3,1.0e0],Ti_kev)
     return C1*eta**(-0.833333333)*xi**2*np.exp(-3*eta**(0.333333333)*xi)
 
 def reac_DD(Ti):
+    Ti_kev = Ti/1e3
     C1 = 3.5741e-22
-    xi = 6.2696*Ti**(-0.333333333)
-    eta = 1-np.polyval([5.8577e-3,0.0e0],Ti)/np.polyval([-0.002964e-3,7.6822e-3,1.0e0],Ti)
+    xi = 6.2696*Ti_kev**(-0.333333333)
+    eta = 1-np.polyval([5.8577e-3,0.0e0],Ti_kev)/np.polyval([-0.002964e-3,7.6822e-3,1.0e0],Ti_kev)
     return C1*eta**(-0.833333333)*xi**2*np.exp(-3*eta**(0.333333333)*xi)
 
 def reac_TT(Ti):
-    return TT_reac_spline(Ti)
+    Ti_kev = Ti/1e3
+    return TT_reac_spline(Ti_kev)
 
 ##############################################################################
 # Deprecated n2n matrix representation
-E1_n2n = np.linspace(13,15,100)
-E2_n2n = np.linspace(1.0,13,500)
+E1_n2n = np.linspace(13.0e6,15.0e6,100)
+E2_n2n = np.linspace(1.0e6,13.0e6,500)
 Dn2n_matrix = np.loadtxt(xs.xsec_dir + "Dn2n_matrix.dat")
 Tn2n_matrix_1 = np.loadtxt(xs.xsec_dir + "Tn2n_matrix_ENDFLAW6.dat")
 Tn2n_matrix_2 = np.loadtxt(xs.xsec_dir + "Tn2n_matrix_CENDL_transform.dat")

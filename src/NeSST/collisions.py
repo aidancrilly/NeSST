@@ -107,8 +107,6 @@ def velocity_addition_to_Ekin(Ek,m,u):
 # Classical Collisions #
 ########################
 
-sqrtE_2_v = 1.3831593e7 # sqrt(2 (1 MeV) / mass of neutron)
-
 def cla_lab_scattering_cosine(A,Ein,Eout,muin,muout,vf):
 	vout  = sqrtE_2_v*np.sqrt(Eout)
 	vin   = sqrtE_2_v*np.sqrt(Ein)

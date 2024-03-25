@@ -3,11 +3,10 @@
 ### ###################################### ###
 
 # Standard libraries
+import typing
+import numpy.typing as npt
+import warnings
 import numpy as np
-from pathlib import Path
-from scipy.interpolate import interp1d
-from scipy.interpolate import interp2d
-from scipy.optimize import curve_fit
 # NeSST libraries
 from NeSST.constants import *
 import NeSST.collisions as col
@@ -19,45 +18,102 @@ available_materials = list(sm.available_materials_dict.keys())
 # Atomic fraction of D and T in scattering medium and source
 frac_D_default = 0.5
 frac_T_default = 0.5
-# Set to True to calculate double scatters, set to False to not
-# Note double scatter model assumes isotropic areal density for scattered neutrons - this is usually a poor approx.
-DS_switch = False
 
-# Energy units - MeV
-# Temperature units - keV
-# Velocity units - m/s
+# Units are SI
+# Energies, temperatures eV
+# Velocities m/s
 
 ##########################################
 # Primary spectral shapes & reactivities #
 ##########################################
 
 # Gaussian "Brysk"
-def Qb(Ein,mean,variance):
+def QBrysk(Ein : npt.NDArray, mean : float, variance : float) -> npt.NDArray:
+    """Calculates the primary spectrum with a Brysk shape i.e. Gaussian
+    Args:
+        Ein (numpy.array) : array of energy values on which to compute spectrum
+        mean (float) : mean of spectrum
+        variance (float): variance of spectraum
+
+    Returns:
+        numpy.array : array with Gaussian spectrum on array Ein
+    
+    """
     spec = np.exp(-(Ein-mean)**2/2.0/variance)/np.sqrt(2*np.pi*variance)
     return spec
 
 # Ballabio
-def Qballabio(Ein,mean,variance):
-    spec = np.exp(-2.0*mean*(np.sqrt(Ein)-np.sqrt(mean))**2/variance)/np.sqrt(2*np.pi*variance)
+def QBallabio(Ein : npt.NDArray, mean : float, variance : float) -> npt.NDArray:
+    """Calculates the primary spectrum with a Ballabio shape i.e. modified Gaussian
+    See equations 44 - 46 of Ballabio et al.
+
+    Args:
+        Ein (numpy.array) : array of energy values on which to compute spectrum
+        mean (float) : mean of spectrum
+        variance (float): variance of spectraum
+
+    Returns:
+        numpy.array : array with modified Gaussian spectrum on array Ein
+    
+    """
+    common_factor = 1-1.5*variance/mean**2
+    Ebar = mean*np.sqrt(common_factor)
+    sig2 = 4.0/3.0*mean**2*(np.sqrt(common_factor)-common_factor)
+    norm = np.sqrt(2*np.pi*variance)
+    spec = np.exp(-2.0*Ebar*(np.sqrt(Ein)-np.sqrt(Ebar))**2/sig2)/norm
     return spec
 
 # TT spectral shape
-def dNdE_TT(E,Tion):
+def dNdE_TT(E : npt.NDArray, Tion : float) -> npt.NDArray:
+    """Calculates the TT primary spectrum with Doppler broadening effect as 
+    calculated in Appelbe et al. HEDP 2016
+
+    Args:
+        E (numpy.array) : array of energy values on which to compute spectrum (eV)
+        Tion (float) : the temperature of the ions in eV
+
+    Returns:
+        numpy.array : array with normalised TT spectral shape at energies E
+    
+    """
     return sm.TT_2dinterp(E,Tion)
 
-def yield_from_dt_yield_ratio(reaction,dt_yield,Ti,frac_D=frac_D_default,frac_T=frac_T_default):
-    ''' Reactivity ratio to predict yield from the DT yield assuming same volume and burn time
+def yield_from_dt_yield_ratio(reaction : str, dt_yield : float, Tion : float,
+                              frac_D=frac_D_default, frac_T=frac_T_default) -> float:
+    """ Reactivity ratio to predict yield from the DT yield assuming same volume and burn time
         rate_ij = (f_{i}*f_{j}*sigmav_{i,j}(T))/(1+delta_{i,j})  # dN/dVdt
         yield_ij = (rate_ij/rate_dt)*yield_dt
 
         Note that the TT reaction produces two neutrons.
-    '''
+
+    Args:
+        reaction (string) : what reaction 'dd' or 'tt'
+        dt_yield (float) : the yield of DT neutrons, used to scale DD and TT yields
+        Tion (float): the temperature of the ions in eV
+        frac_D (float) : fraction of D in fuel
+        frac_T (float) : fraction of T in fuel
+
+    Raises:
+        ValueError: if the Tion is below 0 then a ValueError is raised
+
+    Returns:
+        float : Yield of requested reaction
+
+    """
+
+    if Tion < 0:
+        raise ValueError("Tion (temperature of the ions) can not be below 0")
+    
+    if sum([frac_D, frac_T]) != 1.:
+        msg = (f'The frac_D ({frac_D_default}) and frac_T ({frac_T_default}) '
+               'arguments on the yield_from_dt_yield_ration method do not sum to 1.')
+        warnings.warn(msg)
 
     if reaction == 'tt':
-        ratio = (0.5*frac_T*sm.reac_TT(Ti))/(frac_D*sm.reac_DT(Ti))
+        ratio = (0.5*frac_T*sm.reac_TT(Tion))/(frac_D*sm.reac_DT(Tion))
         ratio = 2.* ratio # Two neutrons are generated for each reaction
     if reaction == 'dd':
-        ratio = (0.5*frac_D*sm.reac_DD(Ti))/(frac_T*sm.reac_DT(Ti))
+        ratio = (0.5*frac_D*sm.reac_DD(Tion))/(frac_T*sm.reac_DT(Tion))
 
     return ratio*dt_yield
 
@@ -69,18 +125,36 @@ E0_DT = ((Md+Mt)**2+Mn**2-MHe4**2)/(2*(Md+Mt))-Mn
 E0_DD = ((Md+Md)**2+Mn**2-MHe3**2)/(2*(Md+Md))-Mn
 
 # Returns the mean and variance based on Ballabio
-# Tion in keV
-def DTprimspecmoments(Tion):
+def DTprimspecmoments(Tion: float) -> typing.Tuple[float, float, float]:
+    """Calculates the mean energy and the variance of the neutron energy
+    emitted during DT fusion accounting for temperature of the incident ions.
+    Based on Ballabio fits, see Table III of L. Ballabio et al 1998 Nucl.
+    Fusion 38 1723
+
+    Args:
+        Tion (float): the temperature of the ions in eV
+
+    Raises:
+        ValueError: if the Tion is below 0 then a ValueError is raised
+
+    Returns:
+        typing.Tuple[float, float, float]: the mean neutron energy, std deviation and variance in eV
+    """
+
+    if Tion < 0:
+        raise ValueError("Tion (temperature of the ions) can not be below 0")
+
     # Mean calculation
     a1 = 5.30509
     a2 = 2.4736e-3
     a3 = 1.84
     a4 = 1.3818
 
-    mean_shift = a1*Tion**(0.6666666666)/(1.0+a2*Tion**a3)+a4*Tion
-
-    # keV to MeV
-    mean_shift /= 1e3
+    Tion_kev = Tion / 1e3  # Ballabio equation accepts KeV units
+    mean_shift = (
+        a1 * Tion_kev ** (0.6666666666) / (1.0 + a2 * Tion_kev**a3) + a4 * Tion_kev
+    )
+    mean_shift *= 1e3  # converting back to eV
 
     mean = E0_DT + mean_shift
 
@@ -91,30 +165,47 @@ def DTprimspecmoments(Tion):
     a3 = 1.78
     a4 = 8.7691e-5
 
-    delta = a1*Tion**(0.6666666666)/(1.0+a2*Tion**a3)+a4*Tion
+    delta = a1 * Tion_kev ** (0.6666666666) / (1.0 + a2 * Tion_kev**a3) + a4 * Tion_kev
 
-    C = omega0*(1+delta)
-    FWHM2    = C**2*Tion
-    variance = FWHM2/(2.35482)**2
-    # keV^2 to MeV^2
-    variance /= 1e6
+    C = omega0 * (1 + delta)
+    FWHM2 = C**2 * Tion_kev
+    variance = FWHM2 / (2.3548200450309493) ** 2
+    variance *= 1e6  # converting keV^2 back to eV^2
+    stddev = np.sqrt(variance)
 
-    return mean, variance
+    return mean, stddev, variance
 
 # Returns the mean and variance based on Ballabio
-# Tion in keV
-def DDprimspecmoments(Tion):
+def DDprimspecmoments(Tion: float) -> typing.Tuple[float, float, float]:
+    """Calculates the mean energy and the variance of the neutron energy
+    emitted during DD fusion accounting for temperature of the incident ions.
+    Based on Ballabio fits, see Table III of L. Ballabio et al 1998 Nucl.
+    Fusion 38 1723
+
+    Args:
+        Tion (float): the temperature of the ions in eV
+
+    Raises:
+        ValueError: if the Tion is below 0 then a ValueError is raised
+
+    Returns:
+        typing.Tuple[float, float, float]: the mean neutron energy, std deviation and variance in eV
+    """
+
+    if Tion < 0:
+        raise ValueError("Tion (temperature of the ions) can not be below 0")
+
     # Mean calculation
     a1 = 4.69515
     a2 = -0.040729
     a3 = 0.47
     a4 = 0.81844
 
-    mean_shift = a1*Tion**(0.6666666666)/(1.0+a2*Tion**a3)+a4*Tion
-
-    # keV to MeV
-    mean_shift /= 1e3
-
+    Tion_kev = Tion / 1e3  # Ballabio equation accepts KeV units
+    mean_shift = (
+        a1 * Tion_kev ** (0.6666666666) / (1.0 + a2 * Tion_kev**a3) + a4 * Tion_kev
+    )
+    mean_shift *= 1e3  # converting back to eV
     mean = E0_DD + mean_shift
 
     # Variance calculation
@@ -124,15 +215,15 @@ def DDprimspecmoments(Tion):
     a3 = 0.49
     a4 = 7.9460e-4
 
-    delta = a1*Tion**(0.6666666666)/(1.0+a2*Tion**a3)+a4*Tion
+    delta = a1 * Tion_kev ** (0.6666666666) / (1.0 + a2 * Tion_kev**a3) + a4 * Tion_kev
 
-    C = omega0*(1+delta)
-    FWHM2    = C**2*Tion
-    variance = FWHM2/(2.35482)**2
-    # keV^2 to MeV^2
-    variance /= 1e6
+    C = omega0 * (1 + delta)
+    FWHM2 = C**2 * Tion_kev
+    variance = FWHM2 / (2.3548200450309493) ** 2
+    variance *= 1e6  # converting keV^2 back to eV^2
+    stddev = np.sqrt(variance)
 
-    return mean, variance
+    return mean, stddev, variance
 
 def neutron_velocity_addition(Ek,u):
     return col.velocity_addition_to_Ekin(Ek,Mn,u)
@@ -141,13 +232,31 @@ def neutron_velocity_addition(Ek,u):
 # DT scattered spectra initialisation #
 #######################################
 
-def init_DT_scatter(Eout,Ein):
+def init_DT_scatter(Eout : npt.NDArray, Ein : npt.NDArray):
+    """Initialise the scattering matrices for D and T materials
+
+    Args:
+        Ein (numpy.array): the array on incoming neutron energies
+        Eout (numpy.array): the array on outgoing neutron energies
+    
+    """
     sm.mat_D.init_energy_grids(Eout,Ein)
     sm.mat_T.init_energy_grids(Eout,Ein)
     sm.mat_D.init_station_scatter_matrices()
     sm.mat_T.init_station_scatter_matrices()
 
-def init_DT_ionkin_scatter(varr,nT=False,nD=False):
+def init_DT_ionkin_scatter(varr : npt.NDArray, nT=False, nD=False):
+    """Initialise the scattering matrices including the effect of ion 
+    velocities in the kinematics
+
+    N.B. the static ion scattering matrices must already be calculated
+    e.g. by calling init_DT_scatter
+
+    Args:
+        Ein (numpy.array): the array on incoming neutron energies
+        Eout (numpy.array): the array on outgoing neutron energies
+    
+    """
     if(nT):
         if(sm.mat_T.Ein is None):
             print("nT - Needed to initialise energy grids - see init_DT_scatter")
@@ -159,7 +268,7 @@ def init_DT_ionkin_scatter(varr,nT=False,nD=False):
         else:
             sm.mat_D.full_scattering_matrix_create(varr)
 
-def calc_DT_ionkin_primspec_rhoL_integral(I_E,rhoL_func=None,nT=False,nD=False):
+def calc_DT_ionkin_primspec_rhoL_integral(I_E : npt.NDArray, rhoL_func=None, nT=False, nD=False):
     if(nT):
         if(sm.mat_T.vvec is None):
             print("nT - Needed to initialise velocity grid - see init_DT_ionkin_scatter")
@@ -179,7 +288,18 @@ def calc_DT_ionkin_primspec_rhoL_integral(I_E,rhoL_func=None,nT=False,nD=False):
 ###################################
 # General material initialisation #
 ###################################
-def init_mat_scatter(Eout,Ein,mat_label):
+def init_mat_scatter(Eout : npt.NDArray, Ein : npt.NDArray, mat_label : str):
+    """General material version of init_DT_scatter as specified by material label
+
+    N.B. the mat_lable must match those in available_materials_dict
+
+    Args:
+        Ein (numpy.array): the array on incoming neutron energies
+        Eout (numpy.array): the array on outgoing neutron energies
+        mat_label (str) : material label
+    
+    
+    """
     mat = sm.available_materials_dict[mat_label]
     mat.init_energy_grids(Eout,Ein)
     mat.init_station_scatter_matrices()
@@ -189,7 +309,26 @@ def init_mat_scatter(Eout,Ein,mat_label):
 #   Single Evalutation Scattered Spectra  #
 ###########################################
 
-def DT_sym_scatter_spec(I_E,frac_D=frac_D_default,frac_T=frac_T_default):
+def DT_sym_scatter_spec(I_E : npt.NDArray
+                        ,frac_D=frac_D_default, frac_T=frac_T_default
+                        ) -> typing.Tuple[npt.NDArray,
+                             typing.Tuple[npt.NDArray,npt.NDArray,npt.NDArray,npt.NDArray]]:
+    """Calculates the single scattered neutron spectrum for DT given a 
+    primary neutron spectrum of I_E from isotropic areal density
+
+    This requires the scattering matrices to have been pre-calculated
+
+    The primary neutron spectrum, I_E, is assumed to be on the same energy grid as 
+    the incoming energy grid used to calculate the scattering matrices
+
+    Args:
+        I_E (numpy.array): the neutron spectrum at Ein energies
+
+    Returns:
+        Tuple of numpy.arrays: the total scattered spectrum and a tuple of the components 
+        (nD,nT,Dn2n,Tn2n)
+    
+    """
     rhoL_func = lambda x : np.ones_like(x)
     sm.mat_D.calc_dNdEs(I_E,rhoL_func)
     sm.mat_T.calc_dNdEs(I_E,rhoL_func)
@@ -200,7 +339,68 @@ def DT_sym_scatter_spec(I_E,frac_D=frac_D_default,frac_T=frac_T_default):
     total = nD+nT+Dn2n+Tn2n
     return total,(nD,nT,Dn2n,Tn2n)
 
-def DT_scatter_spec_w_ionkin(I_E,vbar,dv,rhoL_func,frac_D=frac_D_default,frac_T=frac_T_default):
+def DT_asym_scatter_spec(I_E : npt.NDArray, rhoL_func : callable,
+                         frac_D=frac_D_default, frac_T=frac_T_default
+                         ) -> typing.Tuple[npt.NDArray,
+                             typing.Tuple[npt.NDArray,npt.NDArray,npt.NDArray,npt.NDArray]]:
+    """Calculates the single scattered neutron spectrum for DT given a 
+    primary neutron spectrum of I_E from anisotropic areal density
+
+    This requires the scattering matrices to have been pre-calculated
+
+    The primary neutron spectrum, I_E, is assumed to be on the same energy grid as 
+    the incoming energy grid used to calculate the scattering matrices
+
+    The areal density function rhoL_func needs to be a callable function with a 
+    single argument (cosine[theta])
+
+    Args:
+        I_E (numpy.array): the neutron spectrum at Ein energies
+        rhoL_func (callable): must be a single argument function f(x), 
+        where x e [-1,1] and f(x) e [0,inf] and int f(x) dx = 1
+
+    Returns:
+        Tuple of numpy.arrays: the total scattered spectrum and a tuple of the components 
+        (nD,nT,Dn2n,Tn2n)
+    
+    """
+    sm.mat_D.calc_dNdEs(I_E,rhoL_func)
+    sm.mat_T.calc_dNdEs(I_E,rhoL_func)
+    nD   = frac_D*sm.mat_D.elastic_dNdE
+    nT   = frac_T*sm.mat_T.elastic_dNdE
+    Dn2n = frac_D*sm.mat_D.n2n_dNdE
+    Tn2n = frac_T*sm.mat_T.n2n_dNdE
+    total = nD+nT+Dn2n+Tn2n
+    return total,(nD,nT,Dn2n,Tn2n)
+
+def DT_scatter_spec_w_ionkin(I_E : npt.NDArray, vbar : float, dv : float, rhoL_func : callable,
+                             frac_D=frac_D_default, frac_T=frac_T_default
+                             ) -> typing.Tuple[npt.NDArray,
+                             typing.Tuple[npt.NDArray,npt.NDArray,npt.NDArray,npt.NDArray]]:
+    """Calculates the single scattered neutron spectrum for DT given a 
+    primary neutron spectrum of I_E from anisotropic areal density and including 
+    ion velocities kinematics
+
+    This requires the scattering matrices with ion kinematics to have been pre-calculated
+
+    The primary neutron spectrum, I_E, is assumed to be on the same energy grid as 
+    the incoming energy grid used to calculate the scattering matrices
+
+    The areal density function rhoL_func needs to be a callable function with a 
+    single argument (cosine[theta])
+
+    Args:
+        I_E (numpy.array): the neutron spectrum at Ein energies
+        vbar (float) : mean velocity of the scattering ions
+        dv (float) : standard deviation velocity of the scattering ions
+        rhoL_func (callable): must be a single argument function f(x), 
+        where x e [-1,1] and f(x) e [0,inf] and int f(x) dx = 1
+
+    Returns:
+        Tuple of numpy.arrays: the total scattered spectrum and a tuple of the components 
+        (nD,nT,Dn2n,Tn2n)
+    
+    """
     rhoL_func = lambda x : np.ones_like(x)
     sm.mat_D.calc_dNdEs(I_E,rhoL_func)
     sm.mat_T.calc_dNdEs(I_E,rhoL_func)
@@ -219,17 +419,28 @@ def DT_scatter_spec_w_ionkin(I_E,vbar,dv,rhoL_func,frac_D=frac_D_default,frac_T=
     total = nD+nT+Dn2n+Tn2n
     return total,(nD,nT,Dn2n,Tn2n)
 
-def DT_asym_scatter_spec(I_E,rhoL_func,frac_D=frac_D_default,frac_T=frac_T_default):
-    sm.mat_D.calc_dNdEs(I_E,rhoL_func)
-    sm.mat_T.calc_dNdEs(I_E,rhoL_func)
-    nD   = frac_D*sm.mat_D.elastic_dNdE
-    nT   = frac_T*sm.mat_T.elastic_dNdE
-    Dn2n = frac_D*sm.mat_D.n2n_dNdE
-    Tn2n = frac_T*sm.mat_T.n2n_dNdE
-    total = nD+nT+Dn2n+Tn2n
-    return total,(nD,nT,Dn2n,Tn2n)
+def mat_scatter_spec(mat : typing.Type[sm.material_data],
+                     I_E : npt.NDArray, rhoL_func : callable) -> npt.NDArray:
+    """Calculates a material's single scattered neutron spectrum given a 
+    primary neutron spectrum of I_E from anisotropic areal density
 
-def mat_scatter_spec(mat,I_E,rhoL_func):
+    This requires the scattering matrices to have been pre-calculated
+
+    The primary neutron spectrum, I_E, is assumed to be on the same energy grid as 
+    the incoming energy grid used to calculate the scattering matrices
+
+    The areal density function rhoL_func needs to be a callable function with a 
+    single argument (cosine[theta])
+
+    Args:
+        I_E (numpy.array): the neutron spectrum at Ein energies
+        rhoL_func (callable): must be a single argument function f(x), 
+        where x e [-1,1] and f(x) e [0,inf] and int f(x) dx = 1
+
+    Returns:
+        numpy.array: the total scattered spectrum
+    
+    """
     mat.calc_dNdEs(I_E,rhoL_func)
     total = mat.elastic_dNdE
     if(mat.l_n2n):
@@ -242,24 +453,44 @@ def mat_scatter_spec(mat,I_E,rhoL_func):
 # Full model fitting function #
 ###############################
 
-def calc_DT_sigmabar(Ein,I_E,frac_D=frac_D_default,frac_T=frac_T_default):
+def calc_DT_sigmabar(Ein : npt.NDArray, I_E : npt.NDArray,
+                     frac_D=frac_D_default, frac_T=frac_T_default) -> float:
+    """Calculates the spectral-averaged cross section for DT
+
+    Args:
+        Ein (numpy.array): the array on incoming neutron energies
+        I_E (numpy.array): the neutron spectrum at Ein energies, assumed normalised
+
+    Returns:
+        float : the spectrally averaged total DT cross section
+    """
     sigmabar = frac_D*np.trapz(sm.mat_D.sigma_tot(Ein)*I_E,Ein)+frac_T*np.trapz(sm.mat_T.sigma_tot(Ein)*I_E,Ein)
     return sigmabar
 
-def rhoR_2_A1s(rhoR,frac_D=frac_D_default,frac_T=frac_T_default):
-    # Mass of neutron in milligrams
-    mn_mg = 1.674927485e-21
-    mbar  = (frac_D*sm.A_D+frac_T*sm.A_T)*mn_mg
-    # barns to cm^2
-    sigmabarn = 1e-24
+def rhoR_2_A1s(rhoR : typing.Union[float,npt.NDArray],
+               frac_D=frac_D_default,frac_T=frac_T_default) -> typing.Union[float,npt.NDArray]:
+    """Calculates the scattering amplitude given a DT areal density in kg/m^2
+
+    Args:
+        rhoR (float): the DT areal density in kg/m^2
+
+    Returns:
+        float : the scattering amplitude for single scattering
+    """
+    mbar  = (frac_D*sm.A_D+frac_T*sm.A_T)*Mn_kg
     A_1S = rhoR*(sigmabarn/mbar)
     return A_1S
 
-def A1s_2_rhoR(A_1S,frac_D=frac_D_default,frac_T=frac_T_default):
-    # Mass of neutron in milligrams
-    mn_mg = 1.674927485e-21
-    mbar  = (frac_D*sm.A_D+frac_T*sm.A_T)*mn_mg
-    # barns to cm^2
-    sigmabarn = 1e-24
+def A1s_2_rhoR(A_1S : typing.Union[float,npt.NDArray],
+               frac_D=frac_D_default,frac_T=frac_T_default) -> typing.Union[float,npt.NDArray]:
+    """Calculates the DT areal density in kg/m^2 given a scattering amplitude 
+
+    Args:
+        A_1S (float): the scattering amplitude for single scattering
+
+    Returns:
+        float : the DT areal density in kg/m^2
+    """
+    mbar  = (frac_D*sm.A_D+frac_T*sm.A_T)*Mn_kg
     rhoR = A_1S/(sigmabarn/mbar)
     return rhoR
