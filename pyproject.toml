@@ -20,7 +20,8 @@ requires-python = ">=3.0"
 keywords = ["python", "reactor", "fusion", "power", "sankey"]
 dependencies = [
     "numpy",
-    "scipy"
+    "scipy",
+    "matplotlib"
 ]
 
 [project.urls]

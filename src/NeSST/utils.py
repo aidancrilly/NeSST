@@ -7,7 +7,14 @@ Some wrappers to RegularGridInterpolator to replace interp1d and interp2d
 
 """
 
+def safe_array(x):
+    """Converts floats or lists to appropriate sized arrays"""
+    if not hasattr(x,'ndim'):
+        x = np.array(x)
+    return np.atleast_1d(x)
+
 def interpolate_1d(x_points,values,method='linear',bounds_error=True,fill_value=np.nan,axis=None):
+    x_points = safe_array(x_points)
     assert x_points.ndim == 1
     if(values.ndim == 1):
         if(np.all(np.isclose(x_points, x_points[0]))):
@@ -35,13 +42,17 @@ def interpolate_1d(x_points,values,method='linear',bounds_error=True,fill_value=
         return interp1d(x_points,values,kind=method,bounds_error=bounds_error,fill_value=fill_value,axis=axis)
 
 def interpolate_2d(x_points,y_points,values,method='linear',bounds_error=True,fill_value=np.nan):
+    x_points = safe_array(x_points)
+    y_points = safe_array(y_points)
     assert x_points.ndim == 1
     assert y_points.ndim == 1
     RGI = RegularGridInterpolator((x_points,y_points),values,method,bounds_error,fill_value)
     def dimension_matching_interp(x,y):
+        x = safe_array(x)
+        y = safe_array(y)
         assert x.ndim == 1
         assert y.ndim == 1
         xx,yy = np.meshgrid(x,y,indexing='ij')
         f = RGI((xx,yy))
-        return f
+        return np.squeeze(f)
     return dimension_matching_interp

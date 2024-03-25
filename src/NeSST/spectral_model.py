@@ -92,7 +92,7 @@ class material_data:
         dx_data = np.loadtxt(elastic_dxsec_file,skiprows = 6)
         self.dx_spline = [unity]
         for i in range(1,dx_data.shape[1]):
-            self.dx_spline.append(interpolate_1d(dx_data[:,0]/1e6,dx_data[:,i],method='linear',bounds_error=False,fill_value=0.0))
+            self.dx_spline.append(interpolate_1d(dx_data[:,0],dx_data[:,i],method='linear',bounds_error=False,fill_value=0.0))
 
         tot_xsec_data = self.read_ENDF_xsec_file(tot_xsec_file)
         self.sigma_tot = interpolate_1d(tot_xsec_data[:,0],tot_xsec_data[:,1],method='linear',bounds_error=False,fill_value=0.0)
@@ -109,7 +109,7 @@ class material_data:
             idx_data = np.loadtxt(inelastic_dxsec_file,skiprows = 6)
             self.idx_spline = [unity]
             for i in range(1,idx_data.shape[1]):
-                self.idx_spline.append(interpolate_1d(idx_data[:,0]/1e6,idx_data[:,i],method='linear',bounds_error=False,fill_value=0.0))
+                self.idx_spline.append(interpolate_1d(idx_data[:,0],idx_data[:,i],method='linear',bounds_error=False,fill_value=0.0))
 
         self.Ein  = None       
         self.Eout = None
