@@ -25,9 +25,9 @@ frac_T_default = 0.5
 # Note double scatter model assumes isotropic areal density for scattered neutrons - this is usually a poor approx.
 DS_switch = False
 
-# Energy units - MeV
-# Temperature units - keV
-# Velocity units - m/s
+# Units are SI
+# Energies, temperatures eV
+# Velocities m/s
 
 ##########################################
 # Primary spectral shapes & reactivities #
@@ -47,7 +47,7 @@ def Qballabio(Ein,mean,variance):
 def dNdE_TT(E,Tion):
     return sm.TT_2dinterp(E,Tion)
 
-def yield_from_dt_yield_ratio(reaction,dt_yield,Ti,frac_D=frac_D_default,frac_T=frac_T_default):
+def yield_from_dt_yield_ratio(reaction,dt_yield,Tion,frac_D=frac_D_default,frac_T=frac_T_default):
     ''' Reactivity ratio to predict yield from the DT yield assuming same volume and burn time
         rate_ij = (f_{i}*f_{j}*sigmav_{i,j}(T))/(1+delta_{i,j})  # dN/dVdt
         yield_ij = (rate_ij/rate_dt)*yield_dt
@@ -61,10 +61,10 @@ def yield_from_dt_yield_ratio(reaction,dt_yield,Ti,frac_D=frac_D_default,frac_T=
         warnings.warn(msg)
 
     if reaction == 'tt':
-        ratio = (0.5*frac_T*sm.reac_TT(Ti))/(frac_D*sm.reac_DT(Ti))
+        ratio = (0.5*frac_T*sm.reac_TT(Tion))/(frac_D*sm.reac_DT(Tion))
         ratio = 2.* ratio # Two neutrons are generated for each reaction
     if reaction == 'dd':
-        ratio = (0.5*frac_D*sm.reac_DD(Ti))/(frac_T*sm.reac_DT(Ti))
+        ratio = (0.5*frac_D*sm.reac_DD(Tion))/(frac_T*sm.reac_DT(Tion))
 
     return ratio*dt_yield
 
@@ -73,8 +73,7 @@ def yield_from_dt_yield_ratio(reaction,dt_yield,Ti,frac_D=frac_D_default,frac_T=
 ###############################################################################
 
 # Returns the mean and variance based on Ballabio
-# Tion in keV
-def DTprimspecmoments(Tion):
+def DTprimspecmoments(Tion: float) -> typing.Tuple[float, float]:
     """Calculates the mean energy and the variance of the neutron energy
     emitted during DT fusion accounting for temperature of the incident ions.
     Based on Ballabio fits, see Table III of L. Ballabio et al 1998 Nucl.
@@ -124,9 +123,6 @@ def DTprimspecmoments(Tion):
     return mean, variance
 
 # Returns the mean and variance based on Ballabio
-# Tion in keV
-
-
 def DDprimspecmoments(Tion: float) -> typing.Tuple[float, float]:
     """Calculates the mean energy and the variance of the neutron energy
     emitted during DD fusion accounting for temperature of the incident ions.
@@ -157,7 +153,6 @@ def DDprimspecmoments(Tion: float) -> typing.Tuple[float, float]:
         a1 * Tion_kev ** (0.6666666666) / (1.0 + a2 * Tion_kev**a3) + a4 * Tion_kev
     )
     mean_shift *= 1e3  # converting back to eV
-    print('mean_shift', mean_shift)
     mean = 2.4495e6 + mean_shift
 
     # Variance calculation
@@ -286,19 +281,15 @@ def calc_DT_sigmabar(Ein,I_E,frac_D=frac_D_default,frac_T=frac_T_default):
     return sigmabar
 
 def rhoR_2_A1s(rhoR,frac_D=frac_D_default,frac_T=frac_T_default):
-    # Mass of neutron in milligrams
-    mn_mg = 1.674927485e-21
-    mbar  = (frac_D*sm.A_D+frac_T*sm.A_T)*mn_mg
-    # barns to cm^2
-    sigmabarn = 1e-24
+    mbar  = (frac_D*sm.A_D+frac_T*sm.A_T)*Mn_kg
+    # barns to m^2
+    sigmabarn = 1e-28
     A_1S = rhoR*(sigmabarn/mbar)
     return A_1S
 
 def A1s_2_rhoR(A_1S,frac_D=frac_D_default,frac_T=frac_T_default):
-    # Mass of neutron in milligrams
-    mn_mg = 1.674927485e-21
-    mbar  = (frac_D*sm.A_D+frac_T*sm.A_T)*mn_mg
-    # barns to cm^2
-    sigmabarn = 1e-24
+    mbar  = (frac_D*sm.A_D+frac_T*sm.A_T)*Mn_kg
+    # barns to m^2
+    sigmabarn = 1e-28
     rhoR = A_1S/(sigmabarn/mbar)
     return rhoR
