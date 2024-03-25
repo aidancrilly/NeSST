@@ -278,7 +278,7 @@ TT_2dinterp  = interpolate_2d(TT_spec_E,TT_spec_T,TT_spec_dNdE,method='linear',b
 # TT reactivity
 # TT_reac_data = np.loadtxt(xs.xsec_dir + "TT_reac_McNally.dat")  # sigmav im m^3/s   # From https://www.osti.gov/servlets/purl/5992170 - N.B. not in agreement with experimental measurements
 TT_reac_data = np.loadtxt(xs.xsec_dir + "TT_reac_ENDF.dat")       # sigmav im m^3/s   # From ENDF
-TT_reac_spline = interpolate_1d(TT_reac_data[:,0],TT_reac_data[:,1],method='cubic',bounds_error=False,fill_value=0.0)
+TT_reac_spline = interpolate_1d(TT_reac_data[:,0],TT_reac_data[:,1],method='linear',bounds_error=False,fill_value=0.0)
 
 ########################
 # Primary reactivities #

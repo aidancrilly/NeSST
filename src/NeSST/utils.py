@@ -39,5 +39,9 @@ def interpolate_2d(x_points,y_points,values,method='linear',bounds_error=True,fi
     assert y_points.ndim == 1
     RGI = RegularGridInterpolator((x_points,y_points),values,method,bounds_error,fill_value)
     def dimension_matching_interp(x,y):
-        return RGI((x,y))
+        assert x.ndim == 1
+        assert y.ndim == 1
+        xx,yy = np.meshgrid(x,y,indexing='ij')
+        f = RGI((xx,yy))
+        return f
     return dimension_matching_interp
