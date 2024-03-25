@@ -105,7 +105,7 @@ class doubledifferentialcrosssection_data:
             E = data[::2]
             x = data[1::2]
             for i in range(self.NEin_xsec):
-                self.Ein_xsec[i] = ENDF_format(E[i])/1e6
+                self.Ein_xsec[i] = ENDF_format(E[i])
                 self.xsec[i]     = ENDF_format(x[i])
         self.xsec_interp = interpolate_1d(self.Ein_xsec,self.xsec,method='linear',bounds_error=False,fill_value=0.0)
 
@@ -154,14 +154,14 @@ class doubledifferentialcrosssection_data:
                         E = data[::2]
                         x = data[1::2]
                         for i in range(NEout):
-                            self.Eout_ddx[(Ecounter-1,Ccounter-1)][i] = ENDF_format(E[i])/1e6
-                            self.f_ddx[(Ecounter-1,Ccounter-1)][i]    = ENDF_format(x[i])*1e6
+                            self.Eout_ddx[(Ecounter-1,Ccounter-1)][i] = ENDF_format(E[i])
+                            self.f_ddx[(Ecounter-1,Ccounter-1)][i]    = ENDF_format(x[i])
                         self.f_ddx_interp[(Ecounter-1,Ccounter-1)] = interpolate_1d(self.Eout_ddx[(Ecounter-1,Ccounter-1)],self.f_ddx[(Ecounter-1,Ccounter-1)],method='linear',bounds_error=False,fill_value=0.0)
                         self.Emax_ddx[(Ecounter-1,Ccounter-1)] = np.max(self.Eout_ddx[(Ecounter-1,Ccounter-1)])
                         read_data = False
                     # Read incoming energy
                     if(line_split[0] == 'Energy:'):
-                        self.Ein_ddx[Ecounter] = ENDF_format(line_split[1])/1e6
+                        self.Ein_ddx[Ecounter] = ENDF_format(line_split[1])
                         Ecounter += 1
                     # Prep for cosine number read in
                     elif(" ".join(line_split) == 'Cosine Interpolation:'):
@@ -176,7 +176,7 @@ class doubledifferentialcrosssection_data:
 
     def read_ddx_file_csv(self):
         self.NEin_ddx = 2
-        self.Ein_ddx  = np.array([0.0,14.0])
+        self.Ein_ddx  = np.array([0.0,14.0e6])
         data = np.loadtxt(self.fileddx,delimiter=',',skiprows=1)
         angles,counts = np.unique(data[:,-1],return_counts=True)
         cos = np.cos(angles[::-1]*np.pi/180.)
@@ -315,7 +315,7 @@ class doubledifferentialcrosssection_LAW6:
             E = data[::2]
             x = data[1::2]
             for i in range(self.NEin_xsec):
-                self.Ein_xsec[i] = ENDF_format(E[i])/1e6
+                self.Ein_xsec[i] = ENDF_format(E[i])
                 self.xsec[i]     = ENDF_format(x[i])
         self.xsec_interp = interpolate_1d(self.Ein_xsec,self.xsec,method='linear',bounds_error=False,fill_value=0.0)
 

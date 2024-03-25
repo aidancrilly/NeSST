@@ -84,11 +84,28 @@ def gamma_2_beta(g):
 def v_2_beta(v):
 	return v/c
 
+def beta_2_normtime(beta):
+	return 1.0/beta
+
+def beta_2_Ekin(beta,m):
+	Etot = E(m,beta)
+	return Etot-m
+
+def Jacobian_dEdnorm_t(E,m):
+	beta = Ekin_2_beta(E,m)
+	gam  = gamma(beta)
+	return m*(gam*beta)**3
+
+def velocity_addition_to_Ekin(Ek,m,u):
+	beta_frame = u/c
+	beta = Ekin_2_beta(Ek,m)
+	beta = (beta+beta_frame)/(1+beta*beta_frame)
+	Ek = beta_2_Ekin(beta,m)
+	return Ek
+
 ########################
 # Classical Collisions #
 ########################
-
-sqrtE_2_v = 1.3831593e7 # sqrt(2 (1 MeV) / mass of neutron)
 
 def cla_lab_scattering_cosine(A,Ein,Eout,muin,muout,vf):
 	vout  = sqrtE_2_v*np.sqrt(Eout)
@@ -160,3 +177,4 @@ def mu_out(A,Ein,Eout,vf):
 		beta3 = Ekin_2_beta(Eout,Mn)
 		ans   = rel_mu_out(Mn,A*Mn,beta1,beta2,beta3)
 	return ans
+

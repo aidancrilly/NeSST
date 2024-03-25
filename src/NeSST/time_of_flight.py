@@ -1,0 +1,105 @@
+from NeSST.constants import *
+from NeSST.collisions import *
+import numpy as np
+from scipy.interpolate import interp1d
+
+def get_power_law_NLO(k,p):
+    """
+    Pulse height function H = k E^p
+
+    dH/dE = p k E ^ (p-1)
+
+    If we assume energy deposition is linear in E then:
+
+    A(E) = E/(dH/dE)
+    """
+    def power_law_NLO(E):
+        return E/(p*k*E**(p-1))
+    return power_law_NLO
+
+def get_unity_sensitivity():
+    def unity_sensitivity(En):
+        return np.ones_like(En)
+    return unity_sensitivity
+
+def get_transit_time_tophat_IRF(scintillator_thickness):
+    def transit_time_tophat_IRF(t_detected,En):
+        vn = Ekin_2_beta(En,Mn)*c
+        t_transit = scintillator_thickness/vn
+        tt_d,tt_a = np.meshgrid(t_detected,t_detected,indexing='ij')
+        _,tt_t    = np.meshgrid(t_detected,t_transit,indexing='ij')
+        R = np.eye(t_detected.shape[0])+np.heaviside(tt_d-tt_a,0.0)-np.heaviside(tt_d-(tt_a+tt_t),1.0)
+        R_norm = np.sum(R,axis=1)
+        # Catch the zeros
+        R_norm[R_norm == 0] = 1
+        R /= R_norm[:,None]
+        return R
+    return transit_time_tophat_IRF
+
+def get_transit_time_tophat_w_tGaussian_IRF(scintillator_thickness,gaussian_FWHM,tgaussian_peak_pos):
+    sig = gaussian_FWHM/2.355
+    mu  = (tgaussian_peak_pos**2-sig**2)/tgaussian_peak_pos
+    def filter(t):
+        gauss = t*np.exp(-0.5*((t-mu)/sig)**2)
+        gauss[t < 0] = 0.0
+        return gauss
+    _tophat_IRF = get_transit_time_tophat_IRF(scintillator_thickness)
+    def transit_time_tophat_w_tGaussian_IRF(t_detected,En):
+        R = _tophat_IRF(t_detected,En)
+        t_filter = t_detected-0.5*(t_detected[-1]+t_detected[0])
+        filt = filter(t_filter)
+        R = np.apply_along_axis(lambda m : np.convolve(m,filt,mode='same'), axis=0, arr=R)
+        R_norm = np.sum(R,axis=1)
+        # Catch the zeros
+        R_norm[R_norm == 0] = 1
+        R /= R_norm[:,None]
+        return R
+    return transit_time_tophat_w_tGaussian_IRF
+
+class nToF:
+
+    def __init__(self,distance,sensitivity,instrument_response_function
+                 ,normtime_start=5.0,normtime_end=20.0,normtime_N=2048,detector_normtime=None):
+        self.distance = distance
+        self.sensitivity = sensitivity
+        self.instrument_response_function = instrument_response_function
+
+        if(detector_normtime is None):
+            self.detector_normtime = np.linspace(normtime_start,normtime_end,normtime_N)
+        else:
+            self.detector_normtime = detector_normtime
+        self.detector_time     = self.detector_normtime*self.distance/c
+        # Init instrument response values to None
+        self.dEdt    = None
+        self.sens    = None
+        self.R       = None
+        self.En_dNdE = None
+
+    def compute_instrument_reponse(self,En):
+        self.En_dNdE = En
+        self.dEdt = Jacobian_dEdnorm_t(En,Mn)
+
+        self.En_det = beta_2_Ekin(1.0/self.detector_normtime,Mn)
+        
+        self.sens = self.sensitivity(self.En_det)
+        self.R = self.instrument_response_function(self.detector_time,self.En_det)
+
+    def get_dNdt(self,dNdE):
+        dNdt = dNdE*self.dEdt
+        dNdt_interp = interp1d(self.En_dNdE,dNdt,bounds_error=False,fill_value=0.0)
+        return dNdt_interp(self.En_det)
+
+    def get_signal(self,En,dNdE):
+        if(not np.array_equal(En,self.En_dNdE)):
+            self.compute_instrument_reponse(En)
+        dNdt = self.get_dNdt(dNdE)
+
+        return self.detector_time,self.detector_normtime,np.matmul(self.R,self.sens*dNdt)
+    
+    def get_signal_no_IRF(self,En,dNdE):
+        if(not np.array_equal(En,self.En_dNdE)):
+            self.En_dNdE = En
+            self.dEdt = Jacobian_dEdnorm_t(En,Mn)
+        dNdt = self.get_dNdt(dNdE)
+
+        return self.detector_time,self.detector_normtime,dNdt
