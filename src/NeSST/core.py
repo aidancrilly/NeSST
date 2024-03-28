@@ -79,7 +79,7 @@ def dNdE_TT(E : npt.NDArray, Tion : float) -> npt.NDArray:
     return sm.TT_2dinterp(E,Tion)
 
 def yield_from_dt_yield_ratio(reaction : str, dt_yield : float, Tion : float,
-                              frac_D=frac_D_default, frac_T=frac_T_default) -> float:
+                              frac_D: float = frac_D_default, frac_T: float = frac_T_default) -> float:
     """ Reactivity ratio to predict yield from the DT yield assuming same volume and burn time
         rate_ij = (f_{i}*f_{j}*sigmav_{i,j}(T))/(1+delta_{i,j})  # dN/dVdt
         yield_ij = (rate_ij/rate_dt)*yield_dt
