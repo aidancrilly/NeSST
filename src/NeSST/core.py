@@ -239,7 +239,7 @@ def init_DT_scatter(Eout : npt.NDArray, Ein : npt.NDArray):
     sm.mat_D.init_station_scatter_matrices()
     sm.mat_T.init_station_scatter_matrices()
 
-def init_DT_ionkin_scatter(varr : npt.NDArray, nT=False, nD=False):
+def init_DT_ionkin_scatter(varr : npt.NDArray, nT: bool = False, nD: bool = False):
     """Initialise the scattering matrices including the effect of ion 
     velocities in the kinematics
 
