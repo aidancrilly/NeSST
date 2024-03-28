@@ -1,5 +1,7 @@
 from NeSST.core import *
 from NeSST.constants import *
+from scipy.interpolate import interp1d
+from scipy.interpolate import interp2d
 
 class DT_fit_function:
 	"""
@@ -35,15 +37,15 @@ class DT_fit_function:
 			print("~~ WARNING Low Tion (< 100 eV) ~~")
 		self.Tion = Tion
 
-		self.DTmean,self.DTvar = DTprimspecmoments(Tion)
-		self.DDmean,self.DDvar = DDprimspecmoments(Tion)
+		self.DTmean,_,self.DTvar = DTprimspecmoments(Tion)
+		self.DDmean,_,self.DDvar = DDprimspecmoments(Tion)
 
 		Y_DT = 1.0
 		Y_DD = yield_from_dt_yield_ratio('dd',Y_DT,Tion)
 		Y_TT = yield_from_dt_yield_ratio('tt',Y_DT,Tion)
 
-		self.dNdE_DT = Y_DT*Qb(self.E_DTspec,self.DTmean,self.DTvar) # Brysk shape i.e. Gaussian
-		self.dNdE_DD = Y_DD*Qb(self.E_sspec ,self.DDmean,self.DDvar) # Brysk shape i.e. Gaussian
+		self.dNdE_DT = Y_DT*QBrysk(self.E_DTspec,self.DTmean,self.DTvar) # Brysk shape i.e. Gaussian
+		self.dNdE_DD = Y_DD*QBrysk(self.E_sspec ,self.DDmean,self.DDvar) # Brysk shape i.e. Gaussian
 		self.dNdE_TT = Y_TT*dNdE_TT(self.E_sspec,Tion)
 
 		self.I_DT = interp1d(self.E_DTspec,self.dNdE_DT,fill_value=0.0,bounds_error=False)

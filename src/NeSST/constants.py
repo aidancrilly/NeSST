@@ -20,3 +20,4 @@ qe   = sc.e
 fine_structure =  sc.fine_structure
 sqrtE_2_v = np.sqrt(2*sc.e/sc.m_n)
 Mn_kg = sc.m_n
+sigmabarn = 1e-28 # barns to m^2
