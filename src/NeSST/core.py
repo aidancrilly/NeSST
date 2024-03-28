@@ -448,7 +448,7 @@ def mat_scatter_spec(mat : typing.Type[sm.material_data],
 ###############################
 
 def calc_DT_sigmabar(Ein : npt.NDArray, I_E : npt.NDArray,
-                     frac_D=frac_D_default, frac_T=frac_T_default) -> float:
+                     frac_D: float = frac_D_default, frac_T: float = frac_T_default) -> float:
     """Calculates the spectral-averaged cross section for DT
 
     Args:
