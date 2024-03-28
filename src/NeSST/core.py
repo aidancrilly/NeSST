@@ -262,7 +262,7 @@ def init_DT_ionkin_scatter(varr : npt.NDArray, nT: bool = False, nD: bool = Fals
         else:
             sm.mat_D.full_scattering_matrix_create(varr)
 
-def calc_DT_ionkin_primspec_rhoL_integral(I_E : npt.NDArray, rhoL_func=None, nT=False, nD=False):
+def calc_DT_ionkin_primspec_rhoL_integral(I_E : npt.NDArray, rhoL_func=None, nT: bool = False, nD: bool = False):
     if(nT):
         if(sm.mat_T.vvec is None):
             print("nT - Needed to initialise velocity grid - see init_DT_ionkin_scatter")
