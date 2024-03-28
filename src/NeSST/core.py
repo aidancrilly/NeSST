@@ -458,6 +458,8 @@ def calc_DT_sigmabar(Ein : npt.NDArray, I_E : npt.NDArray,
     Args:
         Ein (numpy.array): the array on incoming neutron energies
         I_E (numpy.array): the neutron spectrum at Ein energies, assumed normalised
+        frac_D (float) : fraction of D in fuel
+        frac_T (float) : fraction of T in fuel
 
     Returns:
         float : the spectrally averaged total DT cross section
