@@ -462,7 +462,7 @@ def calc_DT_sigmabar(Ein : npt.NDArray, I_E : npt.NDArray,
     return sigmabar
 
 def rhoR_2_A1s(rhoR : typing.Union[float,npt.NDArray],
-               frac_D=frac_D_default,frac_T=frac_T_default) -> typing.Union[float,npt.NDArray]:
+               frac_D: float = frac_D_default,frac_T: float = frac_T_default) -> typing.Union[float,npt.NDArray]:
     """Calculates the scattering amplitude given a DT areal density in kg/m^2
 
     Args:
