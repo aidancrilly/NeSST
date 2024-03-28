@@ -391,6 +391,8 @@ def DT_scatter_spec_w_ionkin(I_E : npt.NDArray, vbar : float, dv : float, rhoL_f
         dv (float) : standard deviation velocity of the scattering ions
         rhoL_func (callable): must be a single argument function f(x), 
         where x e [-1,1] and f(x) e [0,inf] and int f(x) dx = 1
+        frac_D (float) : fraction of D in fuel
+        frac_T (float) : fraction of T in fuel
 
     Returns:
         Tuple of numpy.arrays: the total scattered spectrum and a tuple of the components 
