@@ -45,10 +45,10 @@ pip install -e .
 - Inclusion of areal density asymmetry effects and variable fuel fractions
 - Backscatter edge shape effects from scattering ion kinematics
 - Preliminary scattering in H, 12C, 9Be support
+- Synthetic neutron time-of-flight tools
 
 ## Future model developments:
 - Fitting models with ion kinematic approximations
-- Fitting model in normalised time-of-flight domain
 - Pre-computed table support for backscatter edge matrix
 - Knock-on ion spectra
 
