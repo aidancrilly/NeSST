@@ -476,7 +476,7 @@ def rhoR_2_A1s(rhoR : typing.Union[float,npt.NDArray],
     return A_1S
 
 def A1s_2_rhoR(A_1S : typing.Union[float,npt.NDArray],
-               frac_D=frac_D_default,frac_T=frac_T_default) -> typing.Union[float,npt.NDArray]:
+               frac_D: float = frac_D_default,frac_T: float = frac_T_default) -> typing.Union[float,npt.NDArray]:
     """Calculates the DT areal density in kg/m^2 given a scattering amplitude 
 
     Args:
