@@ -334,7 +334,7 @@ def DT_sym_scatter_spec(I_E : npt.NDArray
     return total,(nD,nT,Dn2n,Tn2n)
 
 def DT_asym_scatter_spec(I_E : npt.NDArray, rhoL_func : callable,
-                         frac_D=frac_D_default, frac_T=frac_T_default
+                         frac_D: float = frac_D_default, frac_T: float = frac_T_default
                          ) -> typing.Tuple[npt.NDArray,
                              typing.Tuple[npt.NDArray,npt.NDArray,npt.NDArray,npt.NDArray]]:
     """Calculates the single scattered neutron spectrum for DT given a 
