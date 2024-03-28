@@ -473,6 +473,8 @@ def rhoR_2_A1s(rhoR : typing.Union[float,npt.NDArray],
 
     Args:
         rhoR (float): the DT areal density in kg/m^2
+        frac_D (float) : fraction of D in fuel
+        frac_T (float) : fraction of T in fuel
 
     Returns:
         float : the scattering amplitude for single scattering
