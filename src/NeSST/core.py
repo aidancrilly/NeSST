@@ -352,6 +352,8 @@ def DT_asym_scatter_spec(I_E : npt.NDArray, rhoL_func : callable,
         I_E (numpy.array): the neutron spectrum at Ein energies
         rhoL_func (callable): must be a single argument function f(x), 
         where x e [-1,1] and f(x) e [0,inf] and int f(x) dx = 1
+        frac_D (float) : fraction of D in fuel
+        frac_T (float) : fraction of T in fuel
 
     Returns:
         Tuple of numpy.arrays: the total scattered spectrum and a tuple of the components 
