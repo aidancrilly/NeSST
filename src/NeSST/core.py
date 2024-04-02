@@ -121,9 +121,6 @@ def yield_from_dt_yield_ratio(reaction : str, dt_yield : float, Tion : float,
 # Ballabio fits, see Table III of L. Ballabio et al 1998 Nucl. Fusion 38 1723 #
 ###############################################################################
 
-E0_DT = ((Md+Mt)**2+Mn**2-MHe4**2)/(2*(Md+Mt))-Mn
-E0_DD = ((Md+Md)**2+Mn**2-MHe3**2)/(2*(Md+Md))-Mn
-
 # Returns the mean and variance based on Ballabio
 def DTprimspecmoments(Tion: float) -> typing.Tuple[float, float, float]:
     """Calculates the mean energy and the variance of the neutron energy
