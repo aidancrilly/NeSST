@@ -16,6 +16,8 @@ def safe_array(x):
 def interpolate_1d(x_points,values,method='linear',bounds_error=True,fill_value=np.nan,axis=None):
     x_points = safe_array(x_points)
     assert x_points.ndim == 1
+    if(axis is None):
+        axis = -1
     return interp1d(x_points,values,kind=method,bounds_error=bounds_error,fill_value=fill_value,axis=axis)
     """
     Below is some future proofing where we attempt to reclaim some of interp1d's behaviour with RegularGridInterpolator
