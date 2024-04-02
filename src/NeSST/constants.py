@@ -21,3 +21,10 @@ fine_structure =  sc.fine_structure
 sqrtE_2_v = np.sqrt(2*sc.e/sc.m_n)
 Mn_kg = sc.m_n
 sigmabarn = 1e-28 # barns to m^2
+E0_DT = ((Md+Mt)**2+Mn**2-MHe4**2)/(2*(Md+Mt))-Mn
+E0_DD = ((Md+Md)**2+Mn**2-MHe3**2)/(2*(Md+Md))-Mn
+
+# Directories
+import os
+package_directory = os.path.dirname(os.path.abspath(__file__))
+data_dir = os.path.join(package_directory,"./data/")

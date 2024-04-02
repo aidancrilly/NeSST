@@ -153,7 +153,7 @@ def DTprimspecmoments(Tion: float) -> typing.Tuple[float, float, float]:
     )
     mean_shift *= 1e3  # converting back to eV
 
-    mean = 14.021e6 + mean_shift
+    mean = E0_DT + mean_shift
 
     # Variance calculation
     omega0 = 177.259
@@ -203,7 +203,7 @@ def DDprimspecmoments(Tion: float) -> typing.Tuple[float, float, float]:
         a1 * Tion_kev ** (0.6666666666) / (1.0 + a2 * Tion_kev**a3) + a4 * Tion_kev
     )
     mean_shift *= 1e3  # converting back to eV
-    mean = 2.4495e6 + mean_shift
+    mean = E0_DD + mean_shift
 
     # Variance calculation
     omega0 = 82.542
@@ -221,6 +221,9 @@ def DDprimspecmoments(Tion: float) -> typing.Tuple[float, float, float]:
     stddev = np.sqrt(variance)
 
     return mean, stddev, variance
+
+def neutron_velocity_addition(Ek,u):
+    return col.velocity_addition_to_Ekin(Ek,Mn,u)
 
 #######################################
 # DT scattered spectra initialisation #
