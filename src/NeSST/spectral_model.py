@@ -29,60 +29,60 @@ class material_data:
         self.inelastic = False
         if(self.label == 'H'):
             self.A = Mp/Mn
-            elastic_xsec_file  = xs.xsec_dir + "ENDF_H1(n,elastic)_xsec.dat"
-            elastic_dxsec_file = xs.xsec_dir + "ENDF_H1(n,elastic)_dx.dat"
+            elastic_xsec_file  = data_dir + "ENDF_H1(n,elastic)_xsec.dat"
+            elastic_dxsec_file = data_dir + "ENDF_H1(n,elastic)_dx.dat"
 
-            tot_xsec_file      = xs.xsec_dir + "ENDF_H1(n,elastic)_xsec.dat"
+            tot_xsec_file      = data_dir + "ENDF_H1(n,elastic)_xsec.dat"
         elif(self.label == 'D'):
             self.A = Md/Mn
-            elastic_xsec_file  = xs.xsec_dir + "ENDF_H2(n,elastic)_xsec.dat"
-            elastic_dxsec_file = xs.xsec_dir + "ENDF_H2(n,elastic)_dx.dat"
+            elastic_xsec_file  = data_dir + "ENDF_H2(n,elastic)_xsec.dat"
+            elastic_dxsec_file = data_dir + "ENDF_H2(n,elastic)_dx.dat"
 
             self.l_n2n         = True
             # n2n_type = 0 is ENDF LAW=6, n2n_type = 1 is tabulated double differential cross sections
             n2n_type           = 1
-            n2n_xsec_file      = xs.xsec_dir + "CENDL_d(n,2n)_xsec.dat"
-            n2n_dxsec_file     = xs.xsec_dir + "CENDL_d(n,2n)_ddx.dat"
+            n2n_xsec_file      = data_dir + "CENDL_d(n,2n)_xsec.dat"
+            n2n_dxsec_file     = data_dir + "CENDL_d(n,2n)_ddx.dat"
             n2n_params         = None
 
-            tot_xsec_file      = xs.xsec_dir + "ENDF_nH2_totxsec.dat"
+            tot_xsec_file      = data_dir + "ENDF_nH2_totxsec.dat"
         elif(self.label == 'T'):
             self.A = Mt/Mn
-            elastic_xsec_file  = xs.xsec_dir + "ENDF_H3(n,elastic)_xsec.dat"
-            elastic_dxsec_file = xs.xsec_dir + "ENDF_H3(n,elastic)_dx.dat"
+            elastic_xsec_file  = data_dir + "ENDF_H3(n,elastic)_xsec.dat"
+            elastic_dxsec_file = data_dir + "ENDF_H3(n,elastic)_dx.dat"
 
             self.l_n2n         = True
             # n2n_type = 0 is ENDF LAW=6, n2n_type = 1 is tabulated double differential cross sections
             n2n_type           = 0
-            n2n_xsec_file      = xs.xsec_dir + "ENDF_t(n,2n)_xsec.dat"
+            n2n_xsec_file      = data_dir + "ENDF_t(n,2n)_xsec.dat"
             n2n_dxsec_file     = None
             n2n_params         = [1.0e0,1.0e0,2.990140e0,1.0e0,3.996800e0,-6.25756e6]
 
-            tot_xsec_file      = xs.xsec_dir + "ENDF_nH3_totxsec.dat"
+            tot_xsec_file      = data_dir + "ENDF_nH3_totxsec.dat"
         elif(self.label == '12C'):
             self.A = MC/Mn
-            elastic_xsec_file  = xs.xsec_dir + "CENDL_C12(n,elastic)_xsec.dat"
-            elastic_dxsec_file = xs.xsec_dir + "CENDL_C12(n,elastic)_dx.dat"
+            elastic_xsec_file  = data_dir + "CENDL_C12(n,elastic)_xsec.dat"
+            elastic_dxsec_file = data_dir + "CENDL_C12(n,elastic)_dx.dat"
 
             self.inelastic     = True
             self.inelastic_Q   = -4.43890e6 # eV
-            inelastic_xsec_file  = xs.xsec_dir + "CENDL_C12(n,n1)_xsec.dat"
-            inelastic_dxsec_file = xs.xsec_dir + "CENDL_C12(n,n1)_dx.dat"
+            inelastic_xsec_file  = data_dir + "CENDL_C12(n,n1)_xsec.dat"
+            inelastic_dxsec_file = data_dir + "CENDL_C12(n,n1)_dx.dat"
 
-            tot_xsec_file      = xs.xsec_dir + "CENDL_C12_totxsec.dat"
+            tot_xsec_file      = data_dir + "CENDL_C12_totxsec.dat"
         elif(self.label == '9Be'):
             self.A = MBe/Mn
-            elastic_xsec_file  = xs.xsec_dir + "ENDF_Be9(n,elastic)_xsec.dat"
-            elastic_dxsec_file = xs.xsec_dir + "ENDF_Be9(n,elastic)_dx.dat"
+            elastic_xsec_file  = data_dir + "ENDF_Be9(n,elastic)_xsec.dat"
+            elastic_dxsec_file = data_dir + "ENDF_Be9(n,elastic)_dx.dat"
 
             self.l_n2n         = True
             # n2n_type = 0 is ENDF LAW=6, n2n_type = 1 is tabulated double differential cross sections
             n2n_type           = 1
-            n2n_xsec_file      = xs.xsec_dir + "ENDF_Be9(n,2n)_xsec.dat"
-            n2n_dxsec_file     = xs.xsec_dir + "ENDF_Be9(n,2n)_ddx.dat"
+            n2n_xsec_file      = data_dir + "ENDF_Be9(n,2n)_xsec.dat"
+            n2n_dxsec_file     = data_dir + "ENDF_Be9(n,2n)_ddx.dat"
             n2n_params         = None
 
-            tot_xsec_file      = xs.xsec_dir + "ENDF_nBe9_totxsec.dat"
+            tot_xsec_file      = data_dir + "ENDF_nBe9_totxsec.dat"
         else:
             print("Material label "+self.label+" not recognised")
 
@@ -269,15 +269,15 @@ available_materials_dict = {"H" : mat_H, "D" : mat_D, "T" : mat_T, "12C" : mat_1
 # Based on Appelbe, stationary emitter, temperature range between 1 and 10 keV
 # https://www.sciencedirect.com/science/article/pii/S1574181816300295
 # N.B. requires some unit conversion to uniform eV
-TT_data      = np.loadtxt(xs.xsec_dir + "TT_spec_temprange.txt")
+TT_data      = np.loadtxt(data_dir + "TT_spec_temprange.txt")
 TT_spec_E    = TT_data[:,0]*1e6             # MeV to eV
 TT_spec_T    = np.linspace(1.0,20.0,40)*1e3 # keV to eV
 TT_spec_dNdE = TT_data[:,1:]/1e6            # 1/MeV to 1/eV
 TT_2dinterp  = interpolate_2d(TT_spec_E,TT_spec_T,TT_spec_dNdE,method='linear',bounds_error=False,fill_value=0.0)
 
 # TT reactivity
-# TT_reac_data = np.loadtxt(xs.xsec_dir + "TT_reac_McNally.dat")  # sigmav im m^3/s   # From https://www.osti.gov/servlets/purl/5992170 - N.B. not in agreement with experimental measurements
-TT_reac_data = np.loadtxt(xs.xsec_dir + "TT_reac_ENDF.dat")       # sigmav im m^3/s   # From ENDF
+# TT_reac_data = np.loadtxt(data_dir + "TT_reac_McNally.dat")  # sigmav im m^3/s   # From https://www.osti.gov/servlets/purl/5992170 - N.B. not in agreement with experimental measurements
+TT_reac_data = np.loadtxt(data_dir + "TT_reac_ENDF.dat")       # sigmav im m^3/s   # From ENDF
 TT_reac_spline = interpolate_1d(TT_reac_data[:,0],TT_reac_data[:,1],method='linear',bounds_error=False,fill_value=0.0)
 
 ########################
@@ -309,9 +309,9 @@ def reac_TT(Ti):
 # Deprecated n2n matrix representation
 E1_n2n = np.linspace(13.0e6,15.0e6,100)
 E2_n2n = np.linspace(1.0e6,13.0e6,500)
-Dn2n_matrix = np.loadtxt(xs.xsec_dir + "Dn2n_matrix.dat")
-Tn2n_matrix_1 = np.loadtxt(xs.xsec_dir + "Tn2n_matrix_ENDFLAW6.dat")
-Tn2n_matrix_2 = np.loadtxt(xs.xsec_dir + "Tn2n_matrix_CENDL_transform.dat")
+Dn2n_matrix = np.loadtxt(data_dir + "Dn2n_matrix.dat")
+Tn2n_matrix_1 = np.loadtxt(data_dir + "Tn2n_matrix_ENDFLAW6.dat")
+Tn2n_matrix_2 = np.loadtxt(data_dir + "Tn2n_matrix_CENDL_transform.dat")
 # 2D interpolation functions
 Dn2n_2dinterp = interpolate_2d(E1_n2n,E2_n2n,Dn2n_matrix,method='linear',bounds_error=False,fill_value=0.0)
 Tn2n_1_2dinterp = interpolate_2d(E1_n2n,E2_n2n,Tn2n_matrix_1,method='linear',bounds_error=False,fill_value=0.0)

@@ -1,17 +1,9 @@
 # Backend of spectral model
 import numpy as np
 from numpy.polynomial.legendre import legval
-import os
 from NeSST.constants import *
 from NeSST.utils import *
 import NeSST.collisions as col
-
-#################################
-# Loading in cross section data #
-#################################
-
-package_directory = os.path.dirname(os.path.abspath(__file__))
-xsec_dir = os.path.join(package_directory,"./data/")
 
 ###############################
 # Differential cross sections #

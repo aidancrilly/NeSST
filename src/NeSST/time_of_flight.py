@@ -1,21 +1,30 @@
 from NeSST.constants import *
 from NeSST.collisions import *
+from NeSST.spectral_model import mat_H
+from NeSST.utils import *
 import numpy as np
-from scipy.interpolate import interp1d
+from scipy.integrate import cumtrapz
 
-def get_power_law_NLO(k,p):
-    """
-    Pulse height function H = k E^p
-
-    dH/dE = p k E ^ (p-1)
-
-    If we assume energy deposition is linear in E then:
-
-    A(E) = E/(dH/dE)
-    """
+def get_power_law_NLO(p,Enorm=E0_DT):
+    A = mat_H.sigma(Enorm)*Enorm**p
     def power_law_NLO(E):
-        return E/(p*k*E**(p-1))
+        return mat_H.sigma(E)*E**p/A
     return power_law_NLO
+
+def get_Verbinski_NLO(Enorm=E0_DT):
+    V_E,V_L = np.loadtxt(data_dir+'VerbinskiLproton.csv',delimiter=',',unpack=True)
+    cumulative_L = cumtrapz(y=np.insert(V_L,0,0.0),x=np.insert(V_E,0,0.0))
+    L_integral = interpolate_1d(np.insert(V_E,0,0.0)*1e6,np.insert(cumulative_L,0,0.0),method='cubic')
+
+    def Verbinski_NLO(E):
+        return mat_H.sigma(E)*L_integral(E)/E
+    
+    A = Verbinski_NLO(Enorm)
+
+    def norm_Verbinski_NLO(E):
+        return Verbinski_NLO(E)/A
+    
+    return norm_Verbinski_NLO
 
 def get_unity_sensitivity():
     def unity_sensitivity(En):
@@ -86,7 +95,7 @@ class nToF:
 
     def get_dNdt(self,dNdE):
         dNdt = dNdE*self.dEdt
-        dNdt_interp = interp1d(self.En_dNdE,dNdt,bounds_error=False,fill_value=0.0)
+        dNdt_interp = interpolate_1d(self.En_dNdE,dNdt,bounds_error=False,fill_value=0.0)
         return dNdt_interp(self.En_det)
 
     def get_signal(self,En,dNdE):
