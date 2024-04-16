@@ -21,7 +21,8 @@ keywords = ["python", "reactor", "fusion", "power", "sankey"]
 dependencies = [
     "numpy",
     "scipy",
-    "matplotlib"
+    "matplotlib",
+    "endf"
 ]
 
 [project.urls]

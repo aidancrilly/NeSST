@@ -4,6 +4,7 @@ import numpy as np
 
 from NeSST.constants import *
 from NeSST.utils import *
+from NeSST.endf_interface import retrieve_ENDF_data
 import NeSST.collisions as col
 import NeSST.cross_sections as xs
 
@@ -25,109 +26,53 @@ class material_data:
 
     def __init__(self,label):
         self.label = label
-        self.l_n2n = False
-        self.inelastic = False
         if(self.label == 'H'):
-            self.A = Mp/Mn
-            elastic_xsec_file  = data_dir + "ENDF_H1(n,elastic)_xsec.dat"
-            elastic_dxsec_file = data_dir + "ENDF_H1(n,elastic)_dx.dat"
-
-            tot_xsec_file      = data_dir + "ENDF_H1(n,elastic)_xsec.dat"
+            self.json = 'H1.json'
         elif(self.label == 'D'):
-            self.A = Md/Mn
-            elastic_xsec_file  = data_dir + "ENDF_H2(n,elastic)_xsec.dat"
-            elastic_dxsec_file = data_dir + "ENDF_H2(n,elastic)_dx.dat"
-
-            self.l_n2n         = True
-            # n2n_type = 0 is ENDF LAW=6, n2n_type = 1 is tabulated double differential cross sections
-            n2n_type           = 1
-            n2n_xsec_file      = data_dir + "CENDL_d(n,2n)_xsec.dat"
-            n2n_dxsec_file     = data_dir + "CENDL_d(n,2n)_ddx.dat"
-            n2n_params         = None
-
-            tot_xsec_file      = data_dir + "ENDF_nH2_totxsec.dat"
+            self.json = 'H2.json'
         elif(self.label == 'T'):
-            self.A = Mt/Mn
-            elastic_xsec_file  = data_dir + "ENDF_H3(n,elastic)_xsec.dat"
-            elastic_dxsec_file = data_dir + "ENDF_H3(n,elastic)_dx.dat"
-
-            self.l_n2n         = True
-            # n2n_type = 0 is ENDF LAW=6, n2n_type = 1 is tabulated double differential cross sections
-            n2n_type           = 0
-            n2n_xsec_file      = data_dir + "ENDF_t(n,2n)_xsec.dat"
-            n2n_dxsec_file     = None
-            n2n_params         = [1.0e0,1.0e0,2.990140e0,1.0e0,3.996800e0,-6.25756e6]
-
-            tot_xsec_file      = data_dir + "ENDF_nH3_totxsec.dat"
+            self.json = 'H3.json'
         elif(self.label == '12C'):
-            self.A = MC/Mn
-            elastic_xsec_file  = data_dir + "CENDL_C12(n,elastic)_xsec.dat"
-            elastic_dxsec_file = data_dir + "CENDL_C12(n,elastic)_dx.dat"
-
-            self.inelastic     = True
-            self.inelastic_Q   = -4.43890e6 # eV
-            inelastic_xsec_file  = data_dir + "CENDL_C12(n,n1)_xsec.dat"
-            inelastic_dxsec_file = data_dir + "CENDL_C12(n,n1)_dx.dat"
-
-            tot_xsec_file      = data_dir + "CENDL_C12_totxsec.dat"
+            self.json = 'C12.json'
         elif(self.label == '9Be'):
-            self.A = MBe/Mn
-            elastic_xsec_file  = data_dir + "ENDF_Be9(n,elastic)_xsec.dat"
-            elastic_dxsec_file = data_dir + "ENDF_Be9(n,elastic)_dx.dat"
-
-            self.l_n2n         = True
-            # n2n_type = 0 is ENDF LAW=6, n2n_type = 1 is tabulated double differential cross sections
-            n2n_type           = 1
-            n2n_xsec_file      = data_dir + "ENDF_Be9(n,2n)_xsec.dat"
-            n2n_dxsec_file     = data_dir + "ENDF_Be9(n,2n)_ddx.dat"
-            n2n_params         = None
-
-            tot_xsec_file      = data_dir + "ENDF_nBe9_totxsec.dat"
+            self.json = 'Be9.json'
         else:
             print("Material label "+self.label+" not recognised")
 
-        elastic_xsec_data = self.read_ENDF_xsec_file(elastic_xsec_file)
-        self.sigma = interpolate_1d(elastic_xsec_data[:,0],elastic_xsec_data[:,1],method='linear',bounds_error=False,fill_value=0.0)
+        ENDF_data = retrieve_ENDF_data(self.json)
 
-        dx_data = np.loadtxt(elastic_dxsec_file,skiprows = 6)
-        self.dx_spline = [unity]
-        for i in range(1,dx_data.shape[1]):
-            self.dx_spline.append(interpolate_1d(dx_data[:,0],dx_data[:,i],method='linear',bounds_error=False,fill_value=0.0))
+        self.A = ENDF_data['A']
 
-        tot_xsec_data = self.read_ENDF_xsec_file(tot_xsec_file)
-        self.sigma_tot = interpolate_1d(tot_xsec_data[:,0],tot_xsec_data[:,1],method='linear',bounds_error=False,fill_value=0.0)
+        if(ENDF_data['interactions'].total):
+            self.sigma_tot = interpolate_1d(ENDF_data['total_xsec']['E'],ENDF_data['total_xsec']['sig'],method='linear',bounds_error=False,fill_value=0.0)
 
-        if(self.l_n2n):
-            if(n2n_type == 0):
-                self.n2n_ddx = xs.doubledifferentialcrosssection_LAW6(n2n_xsec_file,*n2n_params)
-            elif(n2n_type == 1):
-                self.n2n_ddx = xs.doubledifferentialcrosssection_data(n2n_xsec_file,n2n_dxsec_file,True)
+        if(ENDF_data['interactions'].elastic):
+            self.sigma = interpolate_1d(ENDF_data['elastic_xsec']['E'],ENDF_data['elastic_xsec']['sig'],method='linear',bounds_error=False,fill_value=0.0)
 
-        if(self.inelastic):
-            inelastic_xsec_data = self.read_ENDF_xsec_file(inelastic_xsec_file)
-            self.isigma = interpolate_1d(inelastic_xsec_data[:,0],inelastic_xsec_data[:,1],method='linear',bounds_error=False,fill_value=0.0)
-            idx_data = np.loadtxt(inelastic_dxsec_file,skiprows = 6)
-            self.idx_spline = [unity]
-            for i in range(1,idx_data.shape[1]):
-                self.idx_spline.append(interpolate_1d(idx_data[:,0],idx_data[:,i],method='linear',bounds_error=False,fill_value=0.0))
+            self.dx_spline = [unity]
+            for i in range(1,ENDF_data['elastic_dxsec']['N_l']):
+                self.dx_spline.append(interpolate_1d(ENDF_data['elastic_dxsec']['E'],ENDF_data['elastic_dxsec']['a_l'][:,i-1],method='linear',bounds_error=False,fill_value=0.0))
+
+        self.l_n2n = ENDF_data['interactions'].n2n
+        if(ENDF_data['interactions'].n2n):
+            if(ENDF_data['n2n_dxsec']['LAW'] == 6):
+                self.n2n_ddx = xs.doubledifferentialcrosssection_LAW6(ENDF_data['n2n_xsec'],ENDF_data['n2n_dxsec'])
+            elif(ENDF_data['n2n_dxsec']['LAW'] == 0):
+                pass
+                # self.n2n_ddx = xs.doubledifferentialcrosssection_data(n2n_xsec_file,n2n_dxsec_file,True)
+
+        self.l_inelastic = ENDF_data['interactions'].inelastic
+        if(ENDF_data['interactions'].inelastic):
+            pass
+            # self.isigma = interpolate_1d(inelastic_xsec_data[:,0],inelastic_xsec_data[:,1],method='linear',bounds_error=False,fill_value=0.0)
+
+            # self.idx_spline = [unity]
+            # for i in range(1,idx_data.shape[1]):
+            #     self.idx_spline.append(interpolate_1d(idx_data[:,0],idx_data[:,i],method='linear',bounds_error=False,fill_value=0.0))
 
         self.Ein  = None       
         self.Eout = None
         self.vvec = None
-        
-    def read_ENDF_xsec_file(self,xsec_file):
-        with open(xsec_file,"r") as f:
-            file = f.read()
-            # Read number of points
-            NEin_xsec = int(file.split()[0])
-            elastic_xsec_data = np.zeros((NEin_xsec,2))
-            data = "".join(file.split("\n")[5:]).split()
-            E = data[::2]
-            x = data[1::2]
-            for i in range(NEin_xsec):
-                elastic_xsec_data[i,0] = xs.ENDF_format(E[i])
-                elastic_xsec_data[i,1] = xs.ENDF_format(x[i])
-        return elastic_xsec_data
 
     ############################################
     # Stationary ion scattered spectral shapes #
@@ -141,7 +86,7 @@ class material_data:
         self.init_station_elastic_scatter()
         if(self.l_n2n):
             self.init_n2n_ddxs(Nm)
-        if(self.inelastic):
+        if(self.l_inelastic):
             self.init_station_inelastic_scatter()
 
     # Elastic scatter matrix
@@ -179,7 +124,7 @@ class material_data:
         self.calc_station_elastic_dNdE(I_E,rhoL_func)
         if(self.l_n2n):
             self.calc_n2n_dNdE(I_E,rhoL_func)
-        if(self.inelastic):
+        if(self.l_inelastic):
             self.calc_station_inelastic_dNdE(I_E,rhoL_func)
 
     # Spectrum produced by scattering of incoming isotropic neutron source I_E with normalised areal density asymmetry rhoR_asym_func
@@ -260,10 +205,10 @@ class material_data:
 mat_H = material_data('H')
 mat_D = material_data('D')
 mat_T = material_data('T')
-mat_12C = material_data('12C')
-mat_9Be = material_data('9Be')
+# mat_12C = material_data('12C')
+# mat_9Be = material_data('9Be')
 
-available_materials_dict = {"H" : mat_H, "D" : mat_D, "T" : mat_T, "12C" : mat_12C, "9Be" : mat_9Be}
+available_materials_dict = {"H" : mat_H, "D" : mat_D, "T" : mat_T}#, "12C" : mat_12C, "9Be" : mat_9Be}
 
 # Load in TT spectrum
 # Based on Appelbe, stationary emitter, temperature range between 1 and 10 keV

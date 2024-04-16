@@ -28,3 +28,4 @@ E0_DD = ((Md+Md)**2+Mn**2-MHe3**2)/(2*(Md+Md))-Mn
 import os
 package_directory = os.path.dirname(os.path.abspath(__file__))
 data_dir = os.path.join(package_directory,"./data/")
+ENDF_dir = os.path.join(data_dir,"./ENDF/")

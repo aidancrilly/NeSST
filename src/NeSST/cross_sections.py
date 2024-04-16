@@ -285,31 +285,14 @@ class doubledifferentialcrosssection_data:
 
 class doubledifferentialcrosssection_LAW6:
 
-    def __init__(self,filexsec,A_i,A_e,A_t,A_p,A_tot,Q_react):
-        self.A_i     = A_i
-        self.A_e     = A_e
-        self.A_t     = A_t
-        self.A_p     = A_p
-        self.A_tot   = A_tot
-        self.Q_react = Q_react
-        self.filexsec = filexsec
-        self.read_xsec_file()
-
-    def read_xsec_file(self):
-        with open(self.filexsec,"r") as f:
-            file = f.read()
-            # Read number of points
-            self.NEin_xsec = int(file.split()[0])
-            self.Ein_xsec  = np.zeros(self.NEin_xsec)
-            self.xsec      = np.zeros(self.NEin_xsec)
-            counter        = 0
-            data = "".join(file.split("\n")[5:]).split()
-            E = data[::2]
-            x = data[1::2]
-            for i in range(self.NEin_xsec):
-                self.Ein_xsec[i] = ENDF_format(E[i])
-                self.xsec[i]     = ENDF_format(x[i])
-        self.xsec_interp = interpolate_1d(self.Ein_xsec,self.xsec,method='linear',bounds_error=False,fill_value=0.0)
+    def __init__(self,ENDF_LAW6_xsec_data,ENDF_LAW6_dxsec_data):
+        self.A_i     = ENDF_LAW6_dxsec_data['A_i']
+        self.A_e     = ENDF_LAW6_dxsec_data['A_e']
+        self.A_t     = ENDF_LAW6_dxsec_data['A_t']
+        self.A_p     = ENDF_LAW6_dxsec_data['A_p']
+        self.A_tot   = ENDF_LAW6_dxsec_data['A_tot']
+        self.Q_react = ENDF_LAW6_dxsec_data['Q_react']
+        self.xsec_interp = interpolate_1d(ENDF_LAW6_xsec_data['E'],ENDF_LAW6_xsec_data['sig'],method='linear',bounds_error=False,fill_value=0.0)
 
     def ddx(self,Ein,mu,Eout):
         E_star = Ein*self.A_i*self.A_e/(self.A_t+self.A_i)**2
