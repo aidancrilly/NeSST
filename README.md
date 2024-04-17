@@ -40,24 +40,17 @@ pip install -e .
 ## Current model specifications:
 - Primary spectrum models for DT, DD and TT
 - Elastic and inelastic (n,2n) processes for D and T
+- ENDF file interface using [ENDF-python](https://github.com/paulromano/endf-python)
 - Relativistic corrections to elastic scattering kernels
 - Scattering of all primary neutron sources
 - Inclusion of areal density asymmetry effects and variable fuel fractions
 - Backscatter edge shape effects from scattering ion kinematics
-- Preliminary scattering in H, 12C, 9Be support
 - Synthetic neutron time-of-flight tools
 
 ## Future model developments:
 - Fitting models with ion kinematic approximations
 - Pre-computed table support for backscatter edge matrix
 - Knock-on ion spectra
-
-## DT cross section and reactivity data:
-ENDF: nT elastic, nD elastic, nH elastic, T(n,2n), TT primary
-
-CENDL: D(n,2n), n12C elastic and 4.4 MeV inelastic
-
-Bosch-Hale: DT primary, DD primary
 
 ## Publications:
 The models used in this code are described in the following publications:

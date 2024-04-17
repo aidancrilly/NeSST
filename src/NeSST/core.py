@@ -443,10 +443,10 @@ def mat_scatter_spec(mat : typing.Type[sm.material_data],
     
     """
     mat.calc_dNdEs(I_E,rhoL_func)
-    total = mat.elastic_dNdE
+    total = mat.elastic_dNdE.copy()
     if(mat.l_n2n):
         total += mat.n2n_dNdE
-    if(mat.inelastic):
+    if(mat.l_inelastic):
         total += mat.inelastic_dNdE
     return total
 

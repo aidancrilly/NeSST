@@ -36,7 +36,8 @@ test = [
 ]
 
 [tool.setuptools.package-data]
-"NeSST.data" = ["*.dat", "*.txt","*.csv"]
+"NeSST.data" = ["*.dat", "*.txt","*.csv","*.json"]
+"NeSST.data.ENDF" = ["*.endf", "*.cendl","*.brond"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

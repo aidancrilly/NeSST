@@ -1,6 +1,8 @@
 ''' Contains some physical constants used throughout the analysis '''
 import scipy.constants as sc
 import numpy as np
+import numpy.typing as npt
+
 # Scipy constants uses CODATA2018 database
 
 # Need to swap from MeV to eV

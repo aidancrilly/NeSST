@@ -49,26 +49,48 @@ class material_data:
         if(ENDF_data['interactions'].elastic):
             self.sigma = interpolate_1d(ENDF_data['elastic_xsec']['E'],ENDF_data['elastic_xsec']['sig'],method='linear',bounds_error=False,fill_value=0.0)
 
-            self.dx_spline = [unity]
-            for i in range(1,ENDF_data['elastic_dxsec']['N_l']):
-                self.dx_spline.append(interpolate_1d(ENDF_data['elastic_dxsec']['E'],ENDF_data['elastic_dxsec']['a_l'][:,i-1],method='linear',bounds_error=False,fill_value=0.0))
+            self.elastic_legendre = ENDF_data['elastic_dxsec']['legendre']
+            if(self.elastic_legendre):
+                self.legendre_dx_spline = [unity]
+                for i in range(ENDF_data['elastic_dxsec']['N_l']):
+                    self.legendre_dx_spline.append(interpolate_1d(ENDF_data['elastic_dxsec']['E'],ENDF_data['elastic_dxsec']['a_l'][:,i],method='linear',bounds_error=False,fill_value=0.0))
+            else:
+                self.elastic_SDX_table = ENDF_data['elastic_dxsec']['SDX']
 
         self.l_n2n = ENDF_data['interactions'].n2n
         if(ENDF_data['interactions'].n2n):
             if(ENDF_data['n2n_dxsec']['LAW'] == 6):
                 self.n2n_ddx = xs.doubledifferentialcrosssection_LAW6(ENDF_data['n2n_xsec'],ENDF_data['n2n_dxsec'])
-            elif(ENDF_data['n2n_dxsec']['LAW'] == 0):
-                pass
-                # self.n2n_ddx = xs.doubledifferentialcrosssection_data(n2n_xsec_file,n2n_dxsec_file,True)
+            elif(ENDF_data['n2n_dxsec']['LAW'] == 7):
+                self.n2n_ddx = xs.doubledifferentialcrosssection_data(ENDF_data['n2n_xsec'],ENDF_data['n2n_dxsec'])
 
         self.l_inelastic = ENDF_data['interactions'].inelastic
         if(ENDF_data['interactions'].inelastic):
-            pass
-            # self.isigma = interpolate_1d(inelastic_xsec_data[:,0],inelastic_xsec_data[:,1],method='linear',bounds_error=False,fill_value=0.0)
+            self.n_inelastic = ENDF_data['n_inelastic']
 
-            # self.idx_spline = [unity]
-            # for i in range(1,idx_data.shape[1]):
-            #     self.idx_spline.append(interpolate_1d(idx_data[:,0],idx_data[:,i],method='linear',bounds_error=False,fill_value=0.0))
+            self.isigma = []
+            self.inelasticQ = []
+            self.inelastic_legendre = []
+            self.legendre_idx_spline = []
+            self.inelastic_SDX_table = []
+
+            for i_inelastic in range(self.n_inelastic):
+                xsec_table = ENDF_data[f'inelastic_xsec_n{i_inelastic+1}']
+                self.isigma.append(interpolate_1d(xsec_table['E'],xsec_table['sig'],method='linear',bounds_error=False,fill_value=0.0))
+
+                dxsec_table = ENDF_data[f'inelastic_dxsec_n{i_inelastic+1}']
+                self.inelasticQ.append(dxsec_table['Q'])
+
+                self.inelastic_legendre.append(dxsec_table['legendre'])
+                if(dxsec_table['legendre']):
+                    idx_spline = [unity]
+                    for i in range(dxsec_table['N_l']):
+                        idx_spline.append(interpolate_1d(dxsec_table['E'],dxsec_table['a_l'][:,i],method='linear',bounds_error=False,fill_value=0.0))
+                    self.legendre_idx_spline.append(idx_spline)
+                    self.inelastic_SDX_table.append(None)
+                else:
+                    self.legendre_idx_spline.append(None)
+                    self.inelastic_SDX_table.append(dxsec_table['SDX'])
 
         self.Ein  = None       
         self.Eout = None
@@ -94,10 +116,13 @@ class material_data:
         Ei,Eo  = np.meshgrid(self.Ein,self.Eout)
         muc    = col.muc(self.A,Ei,Eo,1.0,-1.0,0.0)
         sigma  = self.sigma(self.Ein)
-        Tlcoeff,Nl     = xs.interp_Tlcoeff(self.dx_spline,self.Ein)
-        Tlcoeff_interp = 0.5*(2*np.arange(0,Nl)+1)*Tlcoeff
         self.elastic_mu0 = col.mu_out(self.A,Ei,Eo,0.0)
-        dsdO = xs.diffxsec_legendre_eval(sigma,muc,Tlcoeff_interp)
+        if(self.elastic_legendre):
+            Tlcoeff,Nl     = xs.interp_Tlcoeff(self.legendre_dx_spline,self.Ein)
+            Tlcoeff_interp = 0.5*(2*np.arange(0,Nl)+1)*Tlcoeff
+            dsdO = xs.diffxsec_legendre_eval(sigma,muc,Tlcoeff_interp)
+        else:
+            dsdO = xs.diffxsec_table_eval(sigma,muc,Ei,self.elastic_SDX_table)
         jacob = col.g(self.A,Ei,Eo,1.0,-1.0,0.0)
         self.elastic_dNdEdmu = jacob*dsdO
 
@@ -105,16 +130,33 @@ class material_data:
     # Currently uses classical kinematics
     def init_station_inelastic_scatter(self):
         Ei,Eo  = np.meshgrid(self.Ein,self.Eout)
-        kin_a  = np.sqrt((self.A/(self.A+1))**2*(1.0+(self.A+1)/self.A*self.inelastic_Q/Ei))
-        kin_b  = 1.0/(self.A+1)
-        muc    = ((Eo/Ei)-kin_a**2-kin_b**2)/(2*kin_a*kin_b)
-        sigma  = self.isigma(self.Ein)
-        Tlcoeff,Nl     = xs.interp_Tlcoeff(self.idx_spline,self.Ein)
-        Tlcoeff_interp = 0.5*(2*np.arange(0,Nl)+1)*Tlcoeff
-        self.inelastic_mu0 = (np.sqrt(Eo/Ei)-(kin_a**2-kin_b**2)*np.sqrt(Ei/Eo))/(2*kin_b)
-        dsdO = xs.diffxsec_legendre_eval(sigma,muc,Tlcoeff_interp)
-        jacob = 2.0/((kin_a+kin_b)**2-(kin_a-kin_b)**2)/Ei
-        self.inelastic_dNdEdmu = jacob*dsdO
+        self.inelastic_mu0 = []
+        self.inelastic_dNdEdmu = []
+        for i_inelastic in range(self.n_inelastic):
+            kin_a2 = (self.A/(self.A+1))**2*(1.0+(self.A+1)/self.A*self.inelasticQ[i_inelastic]/Ei)
+            kin_a2_safe = kin_a2.copy()
+            kin_a2_safe[kin_a2_safe < 0.0] = 1.0
+            kin_a  = np.sqrt(kin_a2_safe)
+            kin_b  = 1.0/(self.A+1)
+            muc    = ((Eo/Ei)-kin_a**2-kin_b**2)/(2*kin_a*kin_b)
+            sigma  = self.isigma[i_inelastic](self.Ein)
+            inelastic_mu0 = (np.sqrt(Eo/Ei)-(kin_a**2-kin_b**2)*np.sqrt(Ei/Eo))/(2*kin_b)
+            inelastic_mu0[kin_a2 < 0.0] = 0.0
+            self.inelastic_mu0.append(inelastic_mu0)
+
+            if(self.inelastic_legendre[i_inelastic]):
+                Tlcoeff,Nl     = xs.interp_Tlcoeff(self.legendre_idx_spline[i_inelastic],self.Ein)
+                Tlcoeff_interp = 0.5*(2*np.arange(0,Nl)+1)*Tlcoeff
+                dsdO = xs.diffxsec_legendre_eval(sigma,muc,Tlcoeff_interp)
+            else:
+                dsdO = xs.diffxsec_table_eval(sigma,muc,Ei,self.inelastic_SDX_table[i_inelastic])
+
+            jacob = 2.0/((kin_a+kin_b)**2-(kin_a-kin_b)**2)/Ei
+            inelastic_dNdEdmu = jacob*dsdO
+            
+            inelastic_dNdEdmu[kin_a2 < 0.0] = 0.0
+
+            self.inelastic_dNdEdmu.append(inelastic_dNdEdmu)
 
     def init_n2n_ddxs(self,Nm=100):
         self.n2n_mu = np.linspace(-1.0,1.0,Nm)
@@ -133,8 +175,10 @@ class material_data:
         self.elastic_dNdE = np.trapz(self.elastic_dNdEdmu*rhoL_asym*I_E[None,:],self.Ein,axis=1)
 
     def calc_station_inelastic_dNdE(self,I_E,rhoL_func):
-        rhoL_asym = rhoL_func(self.elastic_mu0)
-        self.inelastic_dNdE = np.trapz(self.inelastic_dNdEdmu*rhoL_asym*I_E[None,:],self.Ein,axis=1)
+        self.inelastic_dNdE = np.zeros(self.Eout.shape[0])
+        for i_inelastic in range(self.n_inelastic):
+            rhoL_asym = rhoL_func(self.inelastic_mu0[i_inelastic])
+            self.inelastic_dNdE += np.trapz(self.inelastic_dNdEdmu[i_inelastic]*rhoL_asym*I_E[None,:],self.Ein,axis=1)
 
     def calc_n2n_dNdE(self,I_E,rhoL_func):
         rhoL_asym = rhoL_func(self.n2n_mu)
@@ -152,7 +196,7 @@ class material_data:
     #     muc    = col.muc(self.A,Ei,Eo,1.0,-1.0,0.0)
     #     sigma  = sigma_nT(Ein)
     #     E_vec  = Ein
-    #     Tlcoeff,Nl     = interp_Tlcoeff(self.dx_spline,E_vec)
+    #     Tlcoeff,Nl     = interp_Tlcoeff(self.legendre_dx_spline,E_vec)
     #     Tlcoeff_interp = 0.5*(2*np.arange(0,Nl)+1)*Tlcoeff
     #     mu0 = col.mu_out(self.A,Ei,Eo,0.0)
     #     rhoR_asym = rhoR_asym_func(mu0)
@@ -205,10 +249,10 @@ class material_data:
 mat_H = material_data('H')
 mat_D = material_data('D')
 mat_T = material_data('T')
-# mat_12C = material_data('12C')
-# mat_9Be = material_data('9Be')
+mat_9Be = material_data('9Be')
+mat_12C = material_data('12C')
 
-available_materials_dict = {"H" : mat_H, "D" : mat_D, "T" : mat_T}#, "12C" : mat_12C, "9Be" : mat_9Be}
+available_materials_dict = {"H" : mat_H, "D" : mat_D, "T" : mat_T, "12C" : mat_12C, "9Be" : mat_9Be}
 
 # Load in TT spectrum
 # Based on Appelbe, stationary emitter, temperature range between 1 and 10 keV
@@ -249,17 +293,3 @@ def reac_DD(Ti):
 def reac_TT(Ti):
     Ti_kev = Ti/1e3
     return TT_reac_spline(Ti_kev)
-
-##############################################################################
-# Deprecated n2n matrix representation
-E1_n2n = np.linspace(13.0e6,15.0e6,100)
-E2_n2n = np.linspace(1.0e6,13.0e6,500)
-Dn2n_matrix = np.loadtxt(data_dir + "Dn2n_matrix.dat")
-Tn2n_matrix_1 = np.loadtxt(data_dir + "Tn2n_matrix_ENDFLAW6.dat")
-Tn2n_matrix_2 = np.loadtxt(data_dir + "Tn2n_matrix_CENDL_transform.dat")
-# 2D interpolation functions
-Dn2n_2dinterp = interpolate_2d(E1_n2n,E2_n2n,Dn2n_matrix,method='linear',bounds_error=False,fill_value=0.0)
-Tn2n_1_2dinterp = interpolate_2d(E1_n2n,E2_n2n,Tn2n_matrix_1,method='linear',bounds_error=False,fill_value=0.0)
-Tn2n_2_2dinterp = interpolate_2d(E1_n2n,E2_n2n,Tn2n_matrix_2,method='linear',bounds_error=False,fill_value=0.0)
-# Deprecated n2n matrix representation
-############################################################################

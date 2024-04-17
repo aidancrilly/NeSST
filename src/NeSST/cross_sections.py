@@ -1,25 +1,54 @@
 # Backend of spectral model
 import numpy as np
 from numpy.polynomial.legendre import legval
+from dataclasses import dataclass
 from NeSST.constants import *
 from NeSST.utils import *
+from scipy.interpolate import griddata
 import NeSST.collisions as col
 
 ###############################
 # Differential cross sections #
 ###############################
 
+@dataclass
+class NeSST_SDX:
+    Ein    : npt.NDArray
+    points : npt.NDArray
+    values : npt.NDArray
+
+@dataclass
+class NeSST_DDX:
+    NEin  : int
+    Ein   : list
+    Ncos  : list
+    cos   : list
+    NEout : dict
+    Eout  : dict
+    f     : dict
+    Emax  : dict
+
 # Elastic single differential cross sections
+
+def diffxsec_table_eval(sig,mu,E,table):
+
+    xi = np.column_stack((E.flatten(),mu.flatten()))
+    # Rescale is very important, gives poor results otherwise
+    interp = griddata(table.points,table.values,xi,rescale=True).reshape(mu.shape)
+
+    ans = sig*interp
+    ans[np.abs(mu) > 1.0] = 0.0
+    return ans
 
 # Interpolate the legendre coefficients (a_l) of the differential cross section
 # See https://t2.lanl.gov/nis/endf/intro20.html
-def interp_Tlcoeff(dx_spline,E_vec):
+def interp_Tlcoeff(legendre_dx_spline,E_vec):
     size = [E_vec.shape[0]]
-    NTl = len(dx_spline)
+    NTl = len(legendre_dx_spline)
     size.append(NTl)
     Tlcoeff = np.zeros(size)
     for i in range(NTl):
-        Tlcoeff[:,i] = dx_spline[i](E_vec)
+        Tlcoeff[:,i] = legendre_dx_spline[i](E_vec)
     return Tlcoeff,NTl
 
 # Evaluate the differential cross section by combining legendre and cross section
@@ -39,11 +68,11 @@ def diffxsec_legendre_eval(sig,mu,coeff):
 # CoM frame differential cross section wrapper fucntion
 def f_dsdO(Ein_vec,mu,material):
 
-    dx_spline = material.dx_spline
-    Tlcoeff_interp,Nl = interp_Tlcoeff(dx_spline,Ein_vec)
-    Tlcoeff_interp    = 0.5*(2*np.arange(0,Nl)+1)*Tlcoeff_interp
-
     sig = material.sigma(Ein_vec)
+
+    legendre_dx_spline = material.legendre_dx_spline
+    Tlcoeff_interp,Nl = interp_Tlcoeff(legendre_dx_spline,Ein_vec)
+    Tlcoeff_interp    = 0.5*(2*np.arange(0,Nl)+1)*Tlcoeff_interp
 
     dsdO = diffxsec_legendre_eval(sig,mu,Tlcoeff_interp)
     return dsdO
@@ -54,151 +83,26 @@ def dsigdOmega(A,Ein,Eout,Ein_vec,muin,muout,vf,material):
     return f_dsdO(Ein_vec,mu_CoM,material)
 
 # Inelastic double differential cross sections
-
-def ENDF_format(x):
-    x_after_decimal = x.split('.')[1]
-    if('+' in x_after_decimal):
-        sign = '+'
-    elif('-' in x_after_decimal):
-        sign = '-'
-    exp  = x.split(sign)[-1]
-    num  = x[:-(len(exp)+1)]
-    if(sign == '-'):
-        return float(num)*10**(-int(exp))
-    elif(sign == '+'):
-        return float(num)*10**(+int(exp))
-    else:
-        print("Strange ENDF float detected....")
-        print(x)
-        return 0.0
-
 # Reads and interpolated data saved in the ENDF interpreted data format
 class doubledifferentialcrosssection_data:
 
-    def __init__(self,filexsec,fileddx,ENDF):
-        self.filexsec = filexsec
-        self.fileddx = fileddx
-        self.ENDF = ENDF
-        if(ENDF):
-            self.read_xsec_file()
-            self.read_ddx_file()
-        else:
-            self.read_ddx_file_csv()
+    def __init__(self,ENDF_LAW6_xsec_data,ENDF_LAW6_dxsec_data):
+        self.xsec_interp = interpolate_1d(ENDF_LAW6_xsec_data['E'],ENDF_LAW6_xsec_data['sig'],method='linear',bounds_error=False,fill_value=0.0)
 
-    def read_xsec_file(self):
-        with open(self.filexsec,"r") as f:
-            file = f.read()
-            # Read number of points
-            self.NEin_xsec = int(file.split()[0])
-            self.Ein_xsec  = np.zeros(self.NEin_xsec)
-            self.xsec      = np.zeros(self.NEin_xsec)
-            counter        = 0
-            data = "".join(file.split("\n")[5:]).split()
-            E = data[::2]
-            x = data[1::2]
-            for i in range(self.NEin_xsec):
-                self.Ein_xsec[i] = ENDF_format(E[i])
-                self.xsec[i]     = ENDF_format(x[i])
-        self.xsec_interp = interpolate_1d(self.Ein_xsec,self.xsec,method='linear',bounds_error=False,fill_value=0.0)
-
-    def read_ddx_file(self):
-        with open(self.fileddx,"r") as f:
-            file = f.read().split("\n")
-            # Read number of points
-            self.NEin_ddx = int(file[1].split()[0])
-            self.Ein_ddx  = np.zeros(self.NEin_ddx)
-            # Read data
-            Ecounter = 0
-            Ccounter = 0
-            read_cosine = False
-            read_energy = False
-            read_data   = False
-            self.Ncos_ddx  = []
-            self.cos_ddx   = []
-            self.NEout_ddx = {}
-            self.Eout_ddx  = {}
-            self.f_ddx     = {}
-            self.f_ddx_interp = {}
-            self.Emax_ddx     = {}
-            # Read in all the array axes
-            for Lcounter,line in enumerate(file):
-                line_split = line.split()
-                if(line_split != []):
-                    # Read number of cosines for given incoming energy
-                    if(read_cosine):
-                        self.Ncos_ddx.append(int(line_split[0]))
-                        self.cos_ddx.append(np.zeros(int(line_split[0])))
-                        read_cosine = False
-                        Ccounter = 0
-                    # Read number of energies for given incoming energy and cosine
-                    if(read_energy):
-                        NEout = int(line_split[0])
-                        self.NEout_ddx[(Ecounter-1,Ccounter-1)] = NEout
-                        self.Eout_ddx[(Ecounter-1,Ccounter-1)]  = np.zeros(NEout)
-                        self.f_ddx[(Ecounter-1,Ccounter-1)]     = np.zeros(NEout)
-                        read_energy = False
-                        idx1 = Lcounter + 4
-                        idx2 = idx1 + int(np.ceil(NEout/3)) + 1
-                        read_data   = True
-                    # Read in the data
-                    if(read_data):
-                        data = "".join(file[idx1:idx2]).split()
-                        E = data[::2]
-                        x = data[1::2]
-                        for i in range(NEout):
-                            self.Eout_ddx[(Ecounter-1,Ccounter-1)][i] = ENDF_format(E[i])
-                            self.f_ddx[(Ecounter-1,Ccounter-1)][i]    = ENDF_format(x[i])
-                        self.f_ddx_interp[(Ecounter-1,Ccounter-1)] = interpolate_1d(self.Eout_ddx[(Ecounter-1,Ccounter-1)],self.f_ddx[(Ecounter-1,Ccounter-1)],method='linear',bounds_error=False,fill_value=0.0)
-                        self.Emax_ddx[(Ecounter-1,Ccounter-1)] = np.max(self.Eout_ddx[(Ecounter-1,Ccounter-1)])
-                        read_data = False
-                    # Read incoming energy
-                    if(line_split[0] == 'Energy:'):
-                        self.Ein_ddx[Ecounter] = ENDF_format(line_split[1])
-                        Ecounter += 1
-                    # Prep for cosine number read in
-                    elif(" ".join(line_split) == 'Cosine Interpolation:'):
-                        read_cosine = True
-                    # Read number of secondary energies
-                    elif(" ".join(line_split) == 'Secondary-Energy Interpolation:'):
-                        read_energy = True
-                    elif('Cosine:' in line):
-                        line_split_c = line.split(":")[1]
-                        self.cos_ddx[Ecounter-1][Ccounter] = ENDF_format(line_split_c)
-                        Ccounter += 1
-
-    def read_ddx_file_csv(self):
-        self.NEin_ddx = 2
-        self.Ein_ddx  = np.array([0.0,14.0e6])
-        data = np.loadtxt(self.fileddx,delimiter=',',skiprows=1)
-        angles,counts = np.unique(data[:,-1],return_counts=True)
-        cos = np.cos(angles[::-1]*np.pi/180.)
-        NC = cos.shape[0]
-        self.Ncos_ddx  = [NC,NC]
-        self.cos_ddx   = [cos,cos]
-        E_prev = 0.0
-        self.NEout_ddx = {}
-        self.Eout_ddx  = {}
-        self.f_ddx     = {}
+        self.NEin_ddx  = ENDF_LAW6_dxsec_data['DDX'].NEin
+        self.Ein_ddx   = ENDF_LAW6_dxsec_data['DDX'].Ein
+        self.Ncos_ddx  = ENDF_LAW6_dxsec_data['DDX'].Ncos
+        self.cos_ddx   = ENDF_LAW6_dxsec_data['DDX'].cos
+        self.NEout_ddx = ENDF_LAW6_dxsec_data['DDX'].NEout
+        self.Eout_ddx  = ENDF_LAW6_dxsec_data['DDX'].Eout
+        self.f_ddx     = ENDF_LAW6_dxsec_data['DDX'].f
+        self.Emax_ddx  = ENDF_LAW6_dxsec_data['DDX'].Emax
+        
+        # Build interpolator dict
         self.f_ddx_interp = {}
-        self.Emax_ddx     = {}
-        idx = data[:,0].shape[0]
-        i = 0
-        for ic in range(NC-1,-1,-1):
-            NEout = counts[ic]
-            self.NEout_ddx[(0,i)] = NEout
-            self.Eout_ddx[(0,i)]  = data[idx-NEout:idx,1]
-            self.f_ddx[(0,i)]     = np.zeros(NEout)
-            self.NEout_ddx[(1,i)] = NEout
-            self.Eout_ddx[(1,i)]  = data[idx-NEout:idx,1]
-            # From barns to mbarns, from sr to per cosine, from number of neutrons to cross section
-            self.f_ddx[(1,i)]     = 0.5*(2*np.pi)*data[idx-NEout:idx,0]/1e3
-            self.f_ddx_interp[(0,i)] = interpolate_1d(self.Eout_ddx[(0,i)],self.f_ddx[(0,i)],method='linear',bounds_error=False,fill_value=0.0)
-            self.Emax_ddx[(0,i)] = np.max(self.Eout_ddx[(0,i)])
-            self.f_ddx_interp[(1,i)] = interpolate_1d(self.Eout_ddx[(1,i)],self.f_ddx[(1,i)],method='linear',bounds_error=False,fill_value=0.0)
-            self.Emax_ddx[(1,i)] = np.max(self.Eout_ddx[(1,i)])
-            idx -= NEout
-            i   += 1
-        self.xsec_interp = lambda x : 1.
+        for Ecounter in range(self.NEin_ddx):
+            for Ccounter in range(self.Ncos_ddx[Ecounter]):
+                self.f_ddx_interp[(Ecounter,Ccounter)] = interpolate_1d(self.Eout_ddx[(Ecounter,Ccounter)],self.f_ddx[(Ecounter,Ccounter)],method='linear',bounds_error=False,fill_value=0.0)
 
     # Interpolate using Unit Base Transform
     def interpolate(self,Ein,mu,Eout):
