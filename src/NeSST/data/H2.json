@@ -1,0 +1,17 @@
+{
+    "n-001_H_002.endf" :
+    {
+        "total" : true,
+        "elastic" : true,
+        "inelastic" : false,
+        "n2n" : false
+    }
+    ,
+    "n-001_H_002.cendl" : 
+    {
+        "total" : false,
+        "elastic" : false,
+        "inelastic" : false,
+        "n2n" : true
+    }
+}

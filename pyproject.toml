@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "NeSST"
-version = "1.0.0"
+version = "1.1.0"
 description = "Neutron Scattered Spectra Tool, ICF primary and scattered neutron spectroscopy analysis code"
 readme = "README.md"
 classifiers = [
@@ -21,7 +21,8 @@ keywords = ["python", "reactor", "fusion", "power", "sankey"]
 dependencies = [
     "numpy",
     "scipy",
-    "matplotlib"
+    "matplotlib",
+    "endf"
 ]
 
 [project.urls]
@@ -35,7 +36,8 @@ test = [
 ]
 
 [tool.setuptools.package-data]
-"NeSST.data" = ["*.dat", "*.txt","*.csv"]
+"NeSST.data" = ["*.dat", "*.txt","*.csv","*.json"]
+"NeSST.data.ENDF" = ["*.endf", "*.cendl","*.brond"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

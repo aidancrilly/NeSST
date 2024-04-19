@@ -1,0 +1,9 @@
+{
+    "n-004_Be_009.endf" :
+    {
+        "total" : true,
+        "elastic" : true,
+        "inelastic" : true,
+        "n2n" : true
+    }
+}

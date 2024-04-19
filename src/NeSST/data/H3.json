@@ -1,0 +1,16 @@
+{
+    "n-001_H_003.endf" :
+    {
+        "total" : true,
+        "elastic" : true,
+        "inelastic" : false,
+        "n2n" : false
+    },
+    "n-001_H_003.brond" : 
+    {
+        "total" : false,
+        "elastic" : false,
+        "inelastic" : false,
+        "n2n" : true
+    }
+}

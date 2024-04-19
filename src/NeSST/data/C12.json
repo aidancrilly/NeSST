@@ -1,0 +1,9 @@
+{
+    "n-006_C_012.endf" :
+    {
+        "total" : true,
+        "elastic" : true,
+        "inelastic" : true,
+        "n2n" : false
+    }
+}
