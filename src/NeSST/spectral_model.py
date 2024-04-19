@@ -5,8 +5,49 @@ import numpy as np
 from NeSST.constants import *
 from NeSST.utils import *
 from NeSST.endf_interface import retrieve_ENDF_data
+from NeSST.charged_particles import *
 import NeSST.collisions as col
 import NeSST.cross_sections as xs
+
+########################
+# Primary reactivities #
+########################
+
+# Bosh Hale DT and DD reactivities
+# Taken from Atzeni & Meyer ter Vehn page 19
+# Output in m3/s, Ti in eV
+def reac_DT(Ti):
+    Ti_kev = Ti/1e3
+    C1 = 643.41e-22
+    xi = 6.6610*Ti_kev**(-0.333333333)
+    eta = 1-np.polyval([-0.10675e-3,4.6064e-3,15.136e-3,0.0e0],Ti_kev)/np.polyval([0.01366e-3,13.5e-3,75.189e-3,1.0e0],Ti_kev)
+    return C1*eta**(-0.833333333)*xi**2*np.exp(-3*eta**(0.333333333)*xi)
+
+def reac_DD(Ti):
+    Ti_kev = Ti/1e3
+    C1 = 3.5741e-22
+    xi = 6.2696*Ti_kev**(-0.333333333)
+    eta = 1-np.polyval([5.8577e-3,0.0e0],Ti_kev)/np.polyval([-0.002964e-3,7.6822e-3,1.0e0],Ti_kev)
+    return C1*eta**(-0.833333333)*xi**2*np.exp(-3*eta**(0.333333333)*xi)
+
+# Load in TT spectrum
+# Based on Appelbe, stationary emitter, temperature range between 1 and 10 keV
+# https://www.sciencedirect.com/science/article/pii/S1574181816300295
+# N.B. requires some unit conversion to uniform eV
+TT_data      = np.loadtxt(data_dir + "TT_spec_temprange.txt")
+TT_spec_E    = TT_data[:,0]*1e6             # MeV to eV
+TT_spec_T    = np.linspace(1.0,20.0,40)*1e3 # keV to eV
+TT_spec_dNdE = TT_data[:,1:]/1e6            # 1/MeV to 1/eV
+TT_2dinterp  = interpolate_2d(TT_spec_E,TT_spec_T,TT_spec_dNdE,method='linear',bounds_error=False,fill_value=0.0)
+
+# TT reactivity
+# TT_reac_data = np.loadtxt(data_dir + "TT_reac_McNally.dat")  # sigmav im m^3/s   # From https://www.osti.gov/servlets/purl/5992170 - N.B. not in agreement with experimental measurements
+TT_reac_data = np.loadtxt(data_dir + "TT_reac_ENDF.dat")       # sigmav im m^3/s   # From ENDF
+TT_reac_spline = interpolate_1d(TT_reac_data[:,0],TT_reac_data[:,1],method='linear',bounds_error=False,fill_value=0.0)
+
+def reac_TT(Ti):
+    Ti_kev = Ti/1e3
+    return TT_reac_spline(Ti_kev)
 
 ##################
 # Material class #
@@ -254,42 +295,57 @@ mat_12C = material_data('12C')
 
 available_materials_dict = {"H" : mat_H, "D" : mat_D, "T" : mat_T, "12C" : mat_12C, "9Be" : mat_9Be}
 
-# Load in TT spectrum
-# Based on Appelbe, stationary emitter, temperature range between 1 and 10 keV
-# https://www.sciencedirect.com/science/article/pii/S1574181816300295
-# N.B. requires some unit conversion to uniform eV
-TT_data      = np.loadtxt(data_dir + "TT_spec_temprange.txt")
-TT_spec_E    = TT_data[:,0]*1e6             # MeV to eV
-TT_spec_T    = np.linspace(1.0,20.0,40)*1e3 # keV to eV
-TT_spec_dNdE = TT_data[:,1:]/1e6            # 1/MeV to 1/eV
-TT_2dinterp  = interpolate_2d(TT_spec_E,TT_spec_T,TT_spec_dNdE,method='linear',bounds_error=False,fill_value=0.0)
+#############################
+# Reaction in flight models #
+#############################
 
-# TT reactivity
-# TT_reac_data = np.loadtxt(data_dir + "TT_reac_McNally.dat")  # sigmav im m^3/s   # From https://www.osti.gov/servlets/purl/5992170 - N.B. not in agreement with experimental measurements
-TT_reac_data = np.loadtxt(data_dir + "TT_reac_ENDF.dat")       # sigmav im m^3/s   # From ENDF
-TT_reac_spline = interpolate_1d(TT_reac_data[:,0],TT_reac_data[:,1],method='linear',bounds_error=False,fill_value=0.0)
+def fusion_beam_target(mi,mj,mk,ml,Q,Ein,Eout):
 
-########################
-# Primary reactivities #
-########################
+    Ei,Eo  = np.meshgrid(Ein,Eout)
+    E_star = mj/(mi+mj)*Ei
 
-# Bosh Hale DT and DD reactivities
-# Taken from Atzeni & Meyer ter Vehn page 19
-# Output in m3/s, Ti in eV
-def reac_DT(Ti):
-    Ti_kev = Ti/1e3
-    C1 = 643.41e-22
-    xi = 6.6610*Ti_kev**(-0.333333333)
-    eta = 1-np.polyval([-0.10675e-3,4.6064e-3,15.136e-3,0.0e0],Ti_kev)/np.polyval([0.01366e-3,13.5e-3,75.189e-3,1.0e0],Ti_kev)
-    return C1*eta**(-0.833333333)*xi**2*np.exp(-3*eta**(0.333333333)*xi)
+    a_2 = mj*ml/((mi+mj)*(mk+ml))*(1+Q/E_star)
+    b_2 = mi*mk/(mi+mj)**2
+    a = np.sqrt(a_2)
+    b = np.sqrt(b_2)
 
-def reac_DD(Ti):
-    Ti_kev = Ti/1e3
-    C1 = 3.5741e-22
-    xi = 6.2696*Ti_kev**(-0.333333333)
-    eta = 1-np.polyval([5.8577e-3,0.0e0],Ti_kev)/np.polyval([-0.002964e-3,7.6822e-3,1.0e0],Ti_kev)
-    return C1*eta**(-0.833333333)*xi**2*np.exp(-3*eta**(0.333333333)*xi)
+    muc    = (Eo/Ei-(a_2+b_2))/(2*a*b)
+    dsdO   = np.ones_like(muc)
+    dsdO[np.abs(muc) > 1.0] = 0.0
+    jacob  = 2/((a+b)**2-(a-b)**2)/Ein
+    return Ei,Eo,jacob,dsdO
 
-def reac_TT(Ti):
-    Ti_kev = Ti/1e3
-    return TT_reac_spline(Ti_kev)
+Q_DT = (Md+Mt-Mn-MHe4)
+
+def DT_beam_target(incident_particle,exiting_particle,Ein,I_E,Eout):
+    """
+    
+    See Crilly thesis for particle mass notation
+
+    """
+    if(incident_particle == 'D'):
+        mi = Md
+        mj = Mt
+    elif(incident_particle == 'T'):
+        mi = Mt
+        mj = Md
+    else:
+        print("incident_particle in DT_beam_target not D or T...")
+        return None
+
+    if(exiting_particle == 'n'):
+        mk = Mn
+        ml = MHe4
+    elif(exiting_particle == '4He'):
+        mk = MHe4
+        ml = Mn
+    else:
+        print("exiting_particle in DT_beam_target not n or 4He...")
+        return None
+
+    Ei,Eo,jacob,dsdO = fusion_beam_target(mi,mj,mk,ml,Q_DT,Ein,Eout)
+
+    K = mj/(mi+mj)*Ei
+    sigma  = xs.BoschHale_DT_cross_section(K)
+    res    = np.trapz(sigma*jacob*dsdO*I_E,Ein,axis=-1)
+    return res

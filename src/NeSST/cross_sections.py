@@ -211,3 +211,27 @@ class doubledifferentialcrosssection_LAW6:
     def regular_grid(self,Ein,mu,Eout):
         Ei,Mm,Eo = np.meshgrid(Ein,mu,Eout,indexing='ij')
         self.rgrid = 2.*self.xsec_interp(Ei)*self.ddx(Ei,Mm,Eo)
+
+
+#########################
+# Fusion cross sections #
+#########################
+
+def fusion_cross_section(S,BG,K_keV):
+    return S(K_keV)/K_keV*np.exp(-BG*np.sqrt(1.0/K_keV))
+
+def BoschHale_DT_cross_section(K):
+    K_keV = K/1e3
+    return 1e-31*fusion_cross_section(BoschHale_S_DT,34.3827,K_keV)
+
+def BoschHale_DD_cross_section(K):
+    K_keV = K/1e3
+    return 1e-31*fusion_cross_section(BoschHale_S_DD,31.3970,K_keV)
+
+def BoschHale_S_DT(K):
+    S = (6.927e4+K*(7.454e8+K*(2.050e6+K*5.2002e4)))/(1.0+K*(6.38e1+K*(-9.95e-1+K*(6.981e-5+1.729e-4*K))))
+    return S
+
+def BoschHale_S_DD(K):
+    S = 5.3701e4+K*(3.3027e2+K*(-1.2706e-1+K*(2.9327e-5-2.5151e-9*K)))
+    return S
