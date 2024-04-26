@@ -10,7 +10,7 @@ def RutherfordDiffXSec(Z1,Z2,m1,m2,Ein,muc):
     E_r    = Ein*m2/(m1+m2) # eV
     # Impact parameter for 90 degree scatter
     b_90   = 7.199822e-10*Z1*Z2/E_r # m
-    return (b_90/(1.0e0-muc))**2
+    return 2*np.pi*1e28*(b_90/(1.0e0-muc))**2+0.5 # barns/cosine
 
 def Rutherford_knockon_ion_spectrum(mi,mj,mk,Zi,Zj,Ein,Iin,muc,normalise=False):
     # Mass conserving
