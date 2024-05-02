@@ -1,6 +1,7 @@
 # Backend of spectral model
 
 import numpy as np
+from scipy.integrate import quad
 
 from NeSST.constants import *
 from NeSST.utils import *
@@ -293,3 +294,50 @@ def reac_DD(Ti):
 def reac_TT(Ti):
     Ti_kev = Ti/1e3
     return TT_reac_spline(Ti_kev)
+
+def reac_TT_Gamow(Ti):
+    m1,m2,Z1,Z2 = Mt,Mt,1.0,1.0
+    def Seff(Ti):
+        """
+        Calculated from ENDF data - see tools/TT_Seff_fit.py
+        """
+        Ti_MeV = Ti/1e6
+        if(np.any(Ti_MeV > 0.1)):
+            raise ValueError
+        a = np.polyval([-4.97521837e+00,4.82935539e+00,1.85180534e-01],Ti_MeV)
+        b = np.polyval([-108.62218457,32.6263136,1.],Ti_MeV)
+        return 1e-22*(a/b) # eV m^2
+    return GamowReac(Ti,Seff,m1,m2,Z1,Z2)
+
+def GamowReac(Ti,Seff,m1,m2,Z1,Z2):
+    """
+    Gamow form/approx of reactivity - see Clayton
+    """
+    m12 = m1*m2/(m1+m2)
+    KB = 2*m12*(np.pi*sc.fine_structure*Z1*Z2)**2
+    KG = (0.25*KB*Ti**2)**(1./3.)
+    epsilon = Ti/(3*KG)
+    reac = Seff(Ti)*(4./3.)*np.sqrt(2./3.)*np.exp(-1/epsilon)/(epsilon*np.sqrt(m12*KG))*sc.c
+    return reac
+
+def Seff_calc(Ti,S,m1,m2,Z1,Z2,x_upper=100.0):
+    """
+    Effective S-factor - see https://doi.org/10.3389/fphy.2022.937972
+    """
+    m12 = m1*m2/(m1+m2)
+    KB = 2*m12*(np.pi*sc.fine_structure*Z1*Z2)**2
+
+    def integrand(x,T):
+        KG = (0.25*KB*T**2)**(1./3.)
+        epsilon = T/(3*KG)
+        def f(K):
+            return (2*np.sqrt(KG/K)+K/KG)/3.0
+        K = x*T
+        return S(K)*np.exp(-(f(K)-1)/epsilon)/np.sqrt(4*np.pi*epsilon)/KG
+    
+    integral_arr = []
+    for T_val in Ti:
+        integral,_ = quad(integrand,a=0.0,b=x_upper,args=(T_val,))
+        integral_arr.append(integral)
+
+    return Ti*np.array(integral_arr)
