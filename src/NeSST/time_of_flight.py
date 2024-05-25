@@ -2,9 +2,54 @@ from NeSST.constants import *
 from NeSST.collisions import *
 from NeSST.spectral_model import mat_H
 from NeSST.utils import *
+from NeSST.endf_interface import retrieve_total_cross_section_from_ENDF_file
 import numpy as np
 from scipy.integrate import cumtrapz
 from scipy.special import erf
+
+from dataclasses import dataclass,field
+from typing import List
+
+@dataclass
+class LOS_material_component:
+    number_fraction : float
+    A : float
+    ENDF_file : str
+
+@dataclass
+class LOS_material:
+    density : float
+    ntot    : float = field(init=False)
+    mavg    : float = field(init=False)
+    length  : float
+    components : List[LOS_material_component]
+
+    def __post_init__(self):
+        self.mavg = 0.0
+        for comp in self.components:
+            self.mavg += comp.number_fraction*comp.A
+        self.mavg *= sc.atomic_mass
+        self.ntot = self.density/self.mavg
+
+def get_LOS_attenuation(LOS_materials : List[LOS_material]):
+    tau_interp_list = []
+    for LOS_material in LOS_materials:
+        ntot_barn   = 1e-28*LOS_material.ntot
+        L           = LOS_material.length
+        for LOS_component in LOS_material.components:
+            ncomp = ntot_barn*LOS_component.number_fraction
+            E,sigma_tot = retrieve_total_cross_section_from_ENDF_file(LOS_component.ENDF_file)
+            tau_interp  = interpolate_1d(E,L*ncomp*sigma_tot,method='linear')
+            tau_interp_list.append(tau_interp)
+
+    def LOS_attenuation(E):
+        total_tau = tau_interp_list[0](E)
+        for i in range(1,len(tau_interp_list)):
+            total_tau += tau_interp_list[i](E)
+        transmission = np.exp(-total_tau)
+        return transmission
+    
+    return LOS_attenuation
 
 def get_power_law_NLO(p,Enorm=E0_DT):
     A = mat_H.sigma(Enorm)*Enorm**p
@@ -31,6 +76,14 @@ def get_unity_sensitivity():
     def unity_sensitivity(En):
         return np.ones_like(En)
     return unity_sensitivity
+
+def combine_detector_sensitivities(model_list):
+    def total_sensitivity(E):
+        sensitivity = model_list[0](E)
+        for i in range(1,len(model_list)):
+            sensitivity *= model_list[i](E)
+        return sensitivity
+    return total_sensitivity
 
 def get_transit_time_tophat_IRF(scintillator_thickness):
     def transit_time_tophat_IRF(t_detected,En):

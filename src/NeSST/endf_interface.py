@@ -183,6 +183,16 @@ def retrieve_ENDF_data_from_manifest(manifest):
 
     return return_dict
 
+def retrieve_total_cross_section_from_ENDF_file(filename):
+
+    mat = endf.Material(ENDF_dir+filename)
+
+    total_dataset = mat.section_data[MF_XSECTION,MT_TOTXSECTION]
+    total_table = total_dataset['sigma']
+    total_E, total_sigma = total_table.x, total_table.y
+
+    return total_E, total_sigma 
+
 def convert_to_NeSST_legendre_format(ENDF_al):
     max_Nl = max([len(a) for a in ENDF_al])
     uniform_len_al = [np.pad(a,(0,max_Nl-len(a))) for a in ENDF_al]
