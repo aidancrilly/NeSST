@@ -3,7 +3,7 @@ from NeSST.collisions import *
 from NeSST.utils import *
 from NeSST.endf_interface import retrieve_total_cross_section_from_ENDF_file
 import numpy as np
-from scipy.integrate import cumtrapz
+from scipy.integrate import cumulative_trapezoid as cumtrapz
 from scipy.special import erf
 
 from dataclasses import dataclass,field
