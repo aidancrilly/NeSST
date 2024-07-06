@@ -1,6 +1,8 @@
 # Backend of spectral model
 
 import numpy as np
+from glob import glob
+from os.path import basename
 
 from NeSST.constants import *
 from NeSST.utils import *
@@ -22,23 +24,34 @@ A_Be = MBe/Mn
 def unity(x):
     return np.ones_like(x)
 
+mat_dict = {}
+
+def initialise_material_data(label):
+    # Aliases
+    if(label == 'H'):
+        json = 'H1.json'
+    elif(label == 'D'):
+        json = 'H2.json'
+    elif(label == 'T'):
+        json = 'H3.json'
+    # Parse name
+    else:
+        mat_jsons = glob(data_dir+'*.json')
+        mats      = [basename(f).split('.')[0] for f in mat_jsons]
+        if(label in mats):
+            json = label+'.json'
+        else:
+            print("Material label '"+label+"' not recognised")
+            return
+    mat_data = material_data(label,json)
+    mat_dict[label] = mat_data
+
 class material_data:
 
-    def __init__(self,label):
+    def __init__(self,label,json):
         self.label = label
-        if(self.label == 'H'):
-            self.json = 'H1.json'
-        elif(self.label == 'D'):
-            self.json = 'H2.json'
-        elif(self.label == 'T'):
-            self.json = 'H3.json'
-        elif(self.label == '12C'):
-            self.json = 'C12.json'
-        elif(self.label == '9Be'):
-            self.json = 'Be9.json'
-        else:
-            print("Material label "+self.label+" not recognised")
 
+        self.json = json
         ENDF_data = retrieve_ENDF_data(self.json)
 
         self.A = ENDF_data['A']
@@ -246,13 +259,8 @@ class material_data:
 
 
 # Default load
-mat_H = material_data('H')
-mat_D = material_data('D')
-mat_T = material_data('T')
-mat_9Be = material_data('9Be')
-mat_12C = material_data('12C')
-
-available_materials_dict = {"H" : mat_H, "D" : mat_D, "T" : mat_T, "12C" : mat_12C, "9Be" : mat_9Be}
+for mat in default_mat_list:
+    initialise_material_data(mat)
 
 # Load in TT spectrum
 # Based on Appelbe, stationary emitter, temperature range between 1 and 10 keV

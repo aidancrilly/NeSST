@@ -31,3 +31,6 @@ import os
 package_directory = os.path.dirname(os.path.abspath(__file__))
 data_dir = os.path.join(package_directory,"./data/")
 ENDF_dir = os.path.join(data_dir,"./ENDF/")
+
+# Materials
+default_mat_list = ['H','D','T','C12','Be9']

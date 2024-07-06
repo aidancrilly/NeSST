@@ -60,16 +60,16 @@ class DT_fit_function:
 
 		if(self.ion_kinematics):
 			calc_DT_ionkin_primspec_rhoL_integral(self.dNdE_DT,nT=True,nD=True)
-			sm.mat_D.calc_n2n_dNdE(self.dNdE_DT,rhoL_func)
-			sm.mat_T.calc_n2n_dNdE(self.dNdE_DT,rhoL_func)
+			sm.mat_dict['D'].calc_n2n_dNdE(self.dNdE_DT,rhoL_func)
+			sm.mat_dict['T'].calc_n2n_dNdE(self.dNdE_DT,rhoL_func)
 		else:
-			sm.mat_D.calc_station_elastic_dNdE(self.dNdE_DT,rhoL_func)
-			sm.mat_T.calc_station_elastic_dNdE(self.dNdE_DT,rhoL_func)
-			sm.mat_D.calc_n2n_dNdE(self.dNdE_DT,rhoL_func)
-			sm.mat_T.calc_n2n_dNdE(self.dNdE_DT,rhoL_func)
+			sm.mat_dict['D'].calc_station_elastic_dNdE(self.dNdE_DT,rhoL_func)
+			sm.mat_dict['T'].calc_station_elastic_dNdE(self.dNdE_DT,rhoL_func)
+			sm.mat_dict['D'].calc_n2n_dNdE(self.dNdE_DT,rhoL_func)
+			sm.mat_dict['T'].calc_n2n_dNdE(self.dNdE_DT,rhoL_func)
 
-		dNdE_Dn2n = interpolate_1d(self.E_sspec,sm.mat_D.n2n_dNdE,fill_value=0.0,bounds_error=False)
-		dNdE_Tn2n = interpolate_1d(self.E_sspec,sm.mat_T.n2n_dNdE,fill_value=0.0,bounds_error=False)
+		dNdE_Dn2n = interpolate_1d(self.E_sspec,sm.mat_dict['D'].n2n_dNdE,fill_value=0.0,bounds_error=False)
+		dNdE_Tn2n = interpolate_1d(self.E_sspec,sm.mat_dict['T'].n2n_dNdE,fill_value=0.0,bounds_error=False)
 
 		if(self.ion_kinematics):
 			def model(E,rhoL,vbar,dv,fT,fD,Yn):
@@ -77,8 +77,8 @@ class DT_fit_function:
 				Symmetric areal density model with scattering ion velocity distribution with mean and std dev, vbar and dv in m/s
 				"""
 				A_1S = rhoR_2_A1s(rhoL,frac_D=fD,frac_T=fT)
-				dNdE_nT  = sm.mat_T.matrix_interpolate_gaussian(E,vbar,dv)
-				dNdE_nD  = sm.mat_D.matrix_interpolate_gaussian(E,vbar,dv)
+				dNdE_nT  = sm.mat_dict['T'].matrix_interpolate_gaussian(E,vbar,dv)
+				dNdE_nD  = sm.mat_dict['D'].matrix_interpolate_gaussian(E,vbar,dv)
 				dNdE_tot = A_1S*(fT*dNdE_nT+fD*dNdE_nD+fD*dNdE_Dn2n(E)+fT*dNdE_Tn2n(E))
 				return Yn*(dNdE_tot+(fD/fT)*(frac_T_default/frac_D_default)*self.I_DD(E)+(fT/fD)*(frac_D_default/frac_T_default)*self.I_TT(E))
 		else:
@@ -88,8 +88,8 @@ class DT_fit_function:
 				Symmetric areal density model with scattering temperature Ts, in keV
 				"""
 				A_1S = rhoR_2_A1s(rhoL,frac_D=fD,frac_T=fT)
-				dNdE_nT  = sm.mat_T.elastic_dNdE.copy()
-				dNdE_nD  = sm.mat_D.elastic_dNdE.copy()
+				dNdE_nT  = sm.mat_dict['T'].elastic_dNdE.copy()
+				dNdE_nD  = sm.mat_dict['D'].elastic_dNdE.copy()
 				if(Ts > 0.1):
 					T_MeV    = Ts/1e3
 					E_nT0    = ((sm.A_T-1.0)/(sm.A_T+1.0))**2*self.DTmean
@@ -114,44 +114,44 @@ class DT_fit_function:
 		self.P1_arr = P1_arr
 
 		# T(n,2n)
-		sm.mat_T.n2n_ddx.rgrid_IE = np.trapz(sm.mat_T.n2n_ddx.rgrid*self.dNdE_DT[:,None,None],self.E_DTspec,axis=0)
-		sm.mat_T.n2n_dNdE_mode1 = np.trapz(sm.mat_T.n2n_ddx.rgrid_IE[:,:,None]*
-		                                       (1.0+self.P1_arr[None,None,:]*sm.mat_T.n2n_mu[:,None,None])
-		                                       ,sm.mat_T.n2n_mu,axis=0)
+		sm.mat_dict['T'].n2n_ddx.rgrid_IE = np.trapz(sm.mat_dict['T'].n2n_ddx.rgrid*self.dNdE_DT[:,None,None],self.E_DTspec,axis=0)
+		sm.mat_dict['T'].n2n_dNdE_mode1 = np.trapz(sm.mat_dict['T'].n2n_ddx.rgrid_IE[:,:,None]*
+		                                       (1.0+self.P1_arr[None,None,:]*sm.mat_dict['T'].n2n_mu[:,None,None])
+		                                       ,sm.mat_dict['T'].n2n_mu,axis=0)
 
-		sm.mat_T.n2n_dNdE_mode1 = interpolate_2d(self.E_sspec,self.P1_arr,sm.mat_T.n2n_dNdE_mode1,bounds_error=False)
+		sm.mat_dict['T'].n2n_dNdE_mode1 = interpolate_2d(self.E_sspec,self.P1_arr,sm.mat_dict['T'].n2n_dNdE_mode1,bounds_error=False)
 
 		# D(n,2n)
-		sm.mat_D.n2n_ddx.rgrid_IE = np.trapz(sm.mat_D.n2n_ddx.rgrid*self.dNdE_DT[:,None,None],self.E_DTspec,axis=0)
-		sm.mat_D.n2n_dNdE_mode1 = np.trapz(sm.mat_D.n2n_ddx.rgrid_IE[:,:,None]*
-		                                       (1.0+self.P1_arr[None,None,:]*sm.mat_D.n2n_mu[:,None,None])
-		                                       ,sm.mat_D.n2n_mu,axis=0)
+		sm.mat_dict['D'].n2n_ddx.rgrid_IE = np.trapz(sm.mat_dict['D'].n2n_ddx.rgrid*self.dNdE_DT[:,None,None],self.E_DTspec,axis=0)
+		sm.mat_dict['D'].n2n_dNdE_mode1 = np.trapz(sm.mat_dict['D'].n2n_ddx.rgrid_IE[:,:,None]*
+		                                       (1.0+self.P1_arr[None,None,:]*sm.mat_dict['D'].n2n_mu[:,None,None])
+		                                       ,sm.mat_dict['D'].n2n_mu,axis=0)
 
-		sm.mat_D.n2n_dNdE_mode1 = interpolate_2d(self.E_sspec,self.P1_arr,sm.mat_D.n2n_dNdE_mode1,bounds_error=False)
+		sm.mat_dict['D'].n2n_dNdE_mode1 = interpolate_2d(self.E_sspec,self.P1_arr,sm.mat_dict['D'].n2n_dNdE_mode1,bounds_error=False)
 
 		# nT
-		M_mode1 = np.trapz((1.0+self.P1_arr[None,None,None,:]*sm.mat_T.full_scattering_mu[:,:,:,None])
-		                                *sm.mat_T.full_scattering_M[:,:,:,None]
+		M_mode1 = np.trapz((1.0+self.P1_arr[None,None,None,:]*sm.mat_dict['T'].full_scattering_mu[:,:,:,None])
+		                                *sm.mat_dict['T'].full_scattering_M[:,:,:,None]
 		                                *self.dNdE_DT[None,None,:,None],self.E_DTspec,axis=2)
 
-		sm.mat_T.M_mode1_interp = interpolate_1d(self.P1_arr,M_mode1,axis=-1,bounds_error=False)
+		sm.mat_dict['T'].M_mode1_interp = interpolate_1d(self.P1_arr,M_mode1,axis=-1,bounds_error=False)
 
 		# nD
-		M_mode1 = np.trapz((1.0+self.P1_arr[None,None,None,:]*sm.mat_D.full_scattering_mu[:,:,:,None])
-		                                *sm.mat_D.full_scattering_M[:,:,:,None]
+		M_mode1 = np.trapz((1.0+self.P1_arr[None,None,None,:]*sm.mat_dict['D'].full_scattering_mu[:,:,:,None])
+		                                *sm.mat_dict['D'].full_scattering_M[:,:,:,None]
 		                                *self.dNdE_DT[None,None,:,None],self.E_DTspec,axis=2)
 
-		sm.mat_D.M_mode1_interp = interpolate_1d(self.P1_arr,M_mode1,axis=-1,bounds_error=False)
+		sm.mat_dict['D'].M_mode1_interp = interpolate_1d(self.P1_arr,M_mode1,axis=-1,bounds_error=False)
 
 		if(self.ion_kinematics):
 			def model(E,rhoL,P1,vbar,dv,fT,fD,Yn):
 				A_1S = rhoR_2_A1s(rhoL,frac_D=fD,frac_T=fT)
-				sm.mat_T.M_prim = sm.mat_T.M_mode1_interp(P1)
-				sm.mat_D.M_prim = sm.mat_D.M_mode1_interp(P1)
-				dNdE_nT   = sm.mat_T.matrix_interpolate_gaussian(E,vbar,dv)
-				dNdE_nD   = sm.mat_D.matrix_interpolate_gaussian(E,vbar,dv)
-				dNdE_Tn2n = sm.mat_T.n2n_dNdE_mode1(E,P1)
-				dNdE_Dn2n = sm.mat_D.n2n_dNdE_mode1(E,P1)
+				sm.mat_dict['T'].M_prim = sm.mat_dict['T'].M_mode1_interp(P1)
+				sm.mat_dict['D'].M_prim = sm.mat_dict['D'].M_mode1_interp(P1)
+				dNdE_nT   = sm.mat_dict['T'].matrix_interpolate_gaussian(E,vbar,dv)
+				dNdE_nD   = sm.mat_dict['D'].matrix_interpolate_gaussian(E,vbar,dv)
+				dNdE_Tn2n = sm.mat_dict['T'].n2n_dNdE_mode1(E,P1)
+				dNdE_Dn2n = sm.mat_dict['D'].n2n_dNdE_mode1(E,P1)
 				dNdE_tot  = A_1S*(fT*dNdE_nT+fD*dNdE_nD+fD*dNdE_Dn2n+fT*dNdE_Tn2n)
 				# Primary
 				dNdE_DD   = (fD/fT)*(frac_T_default/frac_D_default)*self.I_DD(E)

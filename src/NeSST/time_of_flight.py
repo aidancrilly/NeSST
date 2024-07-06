@@ -1,6 +1,6 @@
 from NeSST.constants import *
 from NeSST.collisions import *
-from NeSST.spectral_model import mat_H
+from NeSST.spectral_model import mat_dict
 from NeSST.utils import *
 from NeSST.endf_interface import retrieve_total_cross_section_from_ENDF_file
 import numpy as np
@@ -52,9 +52,9 @@ def get_LOS_attenuation(LOS_materials : List[LOS_material]):
     return LOS_attenuation
 
 def get_power_law_NLO(p,Enorm=E0_DT):
-    A = mat_H.sigma(Enorm)*Enorm**p
+    A = mat_dict['H'].sigma(Enorm)*Enorm**p
     def power_law_NLO(E):
-        return mat_H.sigma(E)*E**p/A
+        return mat_dict['H'].sigma(E)*E**p/A
     return power_law_NLO
 
 def get_Verbinski_NLO(Enorm=E0_DT):
@@ -63,7 +63,7 @@ def get_Verbinski_NLO(Enorm=E0_DT):
     L_integral = interpolate_1d(np.insert(V_E,0,0.0)*1e6,np.insert(cumulative_L,0,0.0),method='cubic')
 
     def Verbinski_NLO(E):
-        return mat_H.sigma(E)*L_integral(E)/E
+        return mat_dict['H'].sigma(E)*L_integral(E)/E
     
     A = Verbinski_NLO(Enorm)
 
