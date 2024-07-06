@@ -1,6 +1,5 @@
 from NeSST.constants import *
 from NeSST.collisions import *
-from NeSST.spectral_model import mat_dict
 from NeSST.utils import *
 from NeSST.endf_interface import retrieve_total_cross_section_from_ENDF_file
 import numpy as np

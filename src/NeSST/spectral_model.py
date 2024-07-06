@@ -1,8 +1,6 @@
 # Backend of spectral model
 
 import numpy as np
-from glob import glob
-from os.path import basename
 
 from NeSST.constants import *
 from NeSST.utils import *
@@ -23,28 +21,6 @@ A_Be = MBe/Mn
 
 def unity(x):
     return np.ones_like(x)
-
-mat_dict = {}
-
-def initialise_material_data(label):
-    # Aliases
-    if(label == 'H'):
-        json = 'H1.json'
-    elif(label == 'D'):
-        json = 'H2.json'
-    elif(label == 'T'):
-        json = 'H3.json'
-    # Parse name
-    else:
-        mat_jsons = glob(data_dir+'*.json')
-        mats      = [basename(f).split('.')[0] for f in mat_jsons]
-        if(label in mats):
-            json = label+'.json'
-        else:
-            print("Material label '"+label+"' not recognised")
-            return
-    mat_data = material_data(label,json)
-    mat_dict[label] = mat_data
 
 class material_data:
 
@@ -256,11 +232,6 @@ class material_data:
         # Interpolate to energy points E
         interp = interpolate_1d(self.Eout,M_v,method='linear',bounds_error=False)
         return interp(E)
-
-
-# Default load
-for mat in default_mat_list:
-    initialise_material_data(mat)
 
 # Load in TT spectrum
 # Based on Appelbe, stationary emitter, temperature range between 1 and 10 keV
