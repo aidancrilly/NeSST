@@ -7,6 +7,8 @@ import typing
 import numpy.typing as npt
 import warnings
 import numpy as np
+from glob import glob
+from os.path import basename
 # NeSST libraries
 from NeSST.constants import *
 import NeSST.collisions as col
@@ -14,7 +16,6 @@ import NeSST.spectral_model as sm
 
 # Global variable defaults
 col.classical_collisions = False
-available_materials = list(sm.available_materials_dict.keys())
 # Atomic fraction of D and T in scattering medium and source
 frac_D_default = 0.5
 frac_T_default = 0.5
@@ -22,6 +23,33 @@ frac_T_default = 0.5
 # Units are SI
 # Energies, temperatures eV
 # Velocities m/s
+
+############################
+# Default material load in #
+############################
+def initialise_material_data(label):
+    # Aliases
+    if(label == 'H'):
+        json = 'H1.json'
+    elif(label == 'D'):
+        json = 'H2.json'
+    elif(label == 'T'):
+        json = 'H3.json'
+    # Parse name
+    else:
+        mat_jsons = glob(data_dir+'*.json')
+        mats      = [basename(f).split('.')[0] for f in mat_jsons]
+        if(label in mats):
+            json = label+'.json'
+        else:
+            print("Material label '"+label+"' not recognised")
+            return
+    mat_data = sm.material_data(label,json)
+    mat_dict[label] = mat_data
+    available_materials.append(label)
+
+for mat in default_mat_list:
+    initialise_material_data(mat)
 
 ##########################################
 # Primary spectral shapes & reactivities #
@@ -237,10 +265,10 @@ def init_DT_scatter(Eout : npt.NDArray, Ein : npt.NDArray):
         Eout (numpy.array): the array on outgoing neutron energies
     
     """
-    sm.mat_D.init_energy_grids(Eout,Ein)
-    sm.mat_T.init_energy_grids(Eout,Ein)
-    sm.mat_D.init_station_scatter_matrices()
-    sm.mat_T.init_station_scatter_matrices()
+    mat_dict['D'].init_energy_grids(Eout,Ein)
+    mat_dict['T'].init_energy_grids(Eout,Ein)
+    mat_dict['D'].init_station_scatter_matrices()
+    mat_dict['T'].init_station_scatter_matrices()
 
 def init_DT_ionkin_scatter(varr : npt.NDArray, nT: bool = False, nD: bool = False):
     """Initialise the scattering matrices including the effect of ion 
@@ -255,31 +283,31 @@ def init_DT_ionkin_scatter(varr : npt.NDArray, nT: bool = False, nD: bool = Fals
     
     """
     if(nT):
-        if(sm.mat_T.Ein is None):
+        if(mat_dict['T'].Ein is None):
             print("nT - Needed to initialise energy grids - see init_DT_scatter")
         else:
-            sm.mat_T.full_scattering_matrix_create(varr)
+            mat_dict['T'].full_scattering_matrix_create(varr)
     if(nD):
-        if(sm.mat_D.Ein is None):
+        if(mat_dict['D'].Ein is None):
             print("nD - Needed to initialise energy grids - see init_DT_scatter")
         else:
-            sm.mat_D.full_scattering_matrix_create(varr)
+            mat_dict['D'].full_scattering_matrix_create(varr)
 
 def calc_DT_ionkin_primspec_rhoL_integral(I_E : npt.NDArray, rhoL_func=None, nT: bool = False, nD: bool = False):
     if(nT):
-        if(sm.mat_T.vvec is None):
+        if(mat_dict['T'].vvec is None):
             print("nT - Needed to initialise velocity grid - see init_DT_ionkin_scatter")
         else:
             if(rhoL_func is not None):
-                sm.mat_T.scattering_matrix_apply_rhoLfunc(rhoL_func)
-            sm.mat_T.matrix_primspec_int(I_E)
+                mat_dict['T'].scattering_matrix_apply_rhoLfunc(rhoL_func)
+            mat_dict['T'].matrix_primspec_int(I_E)
     if(nD):
-        if(sm.mat_D.vvec is None):
+        if(mat_dict['D'].vvec is None):
             print("nD - Needed to initialise velocity grid - see init_DT_ionkin_scatter")
         else:
             if(rhoL_func is not None):
-                sm.mat_D.scattering_matrix_apply_rhoLfunc(rhoL_func)
-            sm.mat_D.matrix_primspec_int(I_E)
+                mat_dict['D'].scattering_matrix_apply_rhoLfunc(rhoL_func)
+            mat_dict['D'].matrix_primspec_int(I_E)
 
 
 ###################################
@@ -297,7 +325,7 @@ def init_mat_scatter(Eout : npt.NDArray, Ein : npt.NDArray, mat_label : str):
     
     
     """
-    mat = sm.available_materials_dict[mat_label]
+    mat = mat_dict[mat_label]
     mat.init_energy_grids(Eout,Ein)
     mat.init_station_scatter_matrices()
     return mat
@@ -327,12 +355,12 @@ def DT_sym_scatter_spec(I_E : npt.NDArray
     
     """
     rhoL_func = lambda x : np.ones_like(x)
-    sm.mat_D.calc_dNdEs(I_E,rhoL_func)
-    sm.mat_T.calc_dNdEs(I_E,rhoL_func)
-    nD   = frac_D*sm.mat_D.elastic_dNdE
-    nT   = frac_T*sm.mat_T.elastic_dNdE
-    Dn2n = frac_D*sm.mat_D.n2n_dNdE
-    Tn2n = frac_T*sm.mat_T.n2n_dNdE
+    mat_dict['D'].calc_dNdEs(I_E,rhoL_func)
+    mat_dict['T'].calc_dNdEs(I_E,rhoL_func)
+    nD   = frac_D*mat_dict['D'].elastic_dNdE
+    nT   = frac_T*mat_dict['T'].elastic_dNdE
+    Dn2n = frac_D*mat_dict['D'].n2n_dNdE
+    Tn2n = frac_T*mat_dict['T'].n2n_dNdE
     total = nD+nT+Dn2n+Tn2n
     return total,(nD,nT,Dn2n,Tn2n)
 
@@ -363,12 +391,12 @@ def DT_asym_scatter_spec(I_E : npt.NDArray, rhoL_func : callable,
         (nD,nT,Dn2n,Tn2n)
     
     """
-    sm.mat_D.calc_dNdEs(I_E,rhoL_func)
-    sm.mat_T.calc_dNdEs(I_E,rhoL_func)
-    nD   = frac_D*sm.mat_D.elastic_dNdE
-    nT   = frac_T*sm.mat_T.elastic_dNdE
-    Dn2n = frac_D*sm.mat_D.n2n_dNdE
-    Tn2n = frac_T*sm.mat_T.n2n_dNdE
+    mat_dict['D'].calc_dNdEs(I_E,rhoL_func)
+    mat_dict['T'].calc_dNdEs(I_E,rhoL_func)
+    nD   = frac_D*mat_dict['D'].elastic_dNdE
+    nT   = frac_T*mat_dict['T'].elastic_dNdE
+    Dn2n = frac_D*mat_dict['D'].n2n_dNdE
+    Tn2n = frac_T*mat_dict['T'].n2n_dNdE
     total = nD+nT+Dn2n+Tn2n
     return total,(nD,nT,Dn2n,Tn2n)
 
@@ -403,20 +431,20 @@ def DT_scatter_spec_w_ionkin(I_E : npt.NDArray, vbar : float, dv : float, rhoL_f
     
     """
     rhoL_func = lambda x : np.ones_like(x)
-    sm.mat_D.calc_dNdEs(I_E,rhoL_func)
-    sm.mat_T.calc_dNdEs(I_E,rhoL_func)
-    if(sm.mat_D.vvec is None):
-        dNdE_nD = sm.mat_D.elastic_dNdE
+    mat_dict['D'].calc_dNdEs(I_E,rhoL_func)
+    mat_dict['T'].calc_dNdEs(I_E,rhoL_func)
+    if(mat_dict['D'].vvec is None):
+        dNdE_nD = mat_dict['D'].elastic_dNdE
     else:
-        dNdE_nD = sm.mat_D.matrix_interpolate_gaussian(sm.mat_D.Eout,vbar,dv)
-    if(sm.mat_T.vvec is None):
-        dNdE_nT = sm.mat_T.elastic_dNdE
+        dNdE_nD = mat_dict['D'].matrix_interpolate_gaussian(mat_dict['D'].Eout,vbar,dv)
+    if(mat_dict['T'].vvec is None):
+        dNdE_nT = mat_dict['T'].elastic_dNdE
     else:
-        dNdE_nT = sm.mat_T.matrix_interpolate_gaussian(sm.mat_T.Eout,vbar,dv)
+        dNdE_nT = mat_dict['T'].matrix_interpolate_gaussian(mat_dict['T'].Eout,vbar,dv)
     nD   = frac_D*dNdE_nD
     nT   = frac_T*dNdE_nT
-    Dn2n = frac_D*sm.mat_D.n2n_dNdE
-    Tn2n = frac_T*sm.mat_T.n2n_dNdE
+    Dn2n = frac_D*mat_dict['D'].n2n_dNdE
+    Tn2n = frac_T*mat_dict['T'].n2n_dNdE
     total = nD+nT+Dn2n+Tn2n
     return total,(nD,nT,Dn2n,Tn2n)
 
@@ -467,7 +495,7 @@ def calc_DT_sigmabar(Ein : npt.NDArray, I_E : npt.NDArray,
     Returns:
         float : the spectrally averaged total DT cross section
     """
-    sigmabar = frac_D*np.trapz(sm.mat_D.sigma_tot(Ein)*I_E,Ein)+frac_T*np.trapz(sm.mat_T.sigma_tot(Ein)*I_E,Ein)
+    sigmabar = frac_D*np.trapz(mat_dict['D'].sigma_tot(Ein)*I_E,Ein)+frac_T*np.trapz(mat_dict['T'].sigma_tot(Ein)*I_E,Ein)
     return sigmabar
 
 def rhoR_2_A1s(rhoR : typing.Union[float,npt.NDArray],

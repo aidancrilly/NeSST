@@ -24,21 +24,10 @@ def unity(x):
 
 class material_data:
 
-    def __init__(self,label):
+    def __init__(self,label,json):
         self.label = label
-        if(self.label == 'H'):
-            self.json = 'H1.json'
-        elif(self.label == 'D'):
-            self.json = 'H2.json'
-        elif(self.label == 'T'):
-            self.json = 'H3.json'
-        elif(self.label == '12C'):
-            self.json = 'C12.json'
-        elif(self.label == '9Be'):
-            self.json = 'Be9.json'
-        else:
-            print("Material label "+self.label+" not recognised")
 
+        self.json = json
         ENDF_data = retrieve_ENDF_data(self.json)
 
         self.A = ENDF_data['A']
@@ -243,16 +232,6 @@ class material_data:
         # Interpolate to energy points E
         interp = interpolate_1d(self.Eout,M_v,method='linear',bounds_error=False)
         return interp(E)
-
-
-# Default load
-mat_H = material_data('H')
-mat_D = material_data('D')
-mat_T = material_data('T')
-mat_9Be = material_data('9Be')
-mat_12C = material_data('12C')
-
-available_materials_dict = {"H" : mat_H, "D" : mat_D, "T" : mat_T, "12C" : mat_12C, "9Be" : mat_9Be}
 
 # Load in TT spectrum
 # Based on Appelbe, stationary emitter, temperature range between 1 and 10 keV

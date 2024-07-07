@@ -1,10 +1,9 @@
-''' Contains some physical constants used throughout the analysis '''
 import scipy.constants as sc
 import numpy as np
 import numpy.typing as npt
 
+''' Contains some physical constants used throughout the analysis '''
 # Scipy constants uses CODATA2018 database
-
 # Need to swap from MeV to eV
 amu  = sc.value('atomic mass constant energy equivalent in MeV')*1e6
 c    = sc.c
@@ -31,3 +30,8 @@ import os
 package_directory = os.path.dirname(os.path.abspath(__file__))
 data_dir = os.path.join(package_directory,"./data/")
 ENDF_dir = os.path.join(data_dir,"./ENDF/")
+
+# Materials
+default_mat_list = ['H','D','T','C12','Be9']
+available_materials = []
+mat_dict = {}
