@@ -140,8 +140,10 @@ def yield_from_dt_yield_ratio(reaction : str, dt_yield : float, Tion : float,
     if reaction == 'tt':
         ratio = (0.5*frac_T*sm.reac_TT(Tion))/(frac_D*sm.reac_DT(Tion))
         ratio = 2.* ratio # Two neutrons are generated for each reaction
-    if reaction == 'dd':
+    elif reaction == 'dd':
         ratio = (0.5*frac_D*sm.reac_DD(Tion))/(frac_T*sm.reac_DT(Tion))
+    else:
+        raise ValueError(f'reaction should be either "dd" or "tt" not {reaction}')
 
     return ratio*dt_yield
 
