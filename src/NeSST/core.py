@@ -516,7 +516,7 @@ def mat_scatter_spec(mat : typing.Type[sm.material_data],
     return total
 
 ###############################
-# Full model fitting function #
+#   Basic utility functions   #
 ###############################
 
 def calc_DT_sigmabar(Ein : npt.NDArray, I_E : npt.NDArray,
@@ -566,3 +566,21 @@ def A1s_2_rhoR(A_1S : typing.Union[float,npt.NDArray],
     mbar  = (frac_D*sm.A_D+frac_T*sm.A_T)*Mn_kg
     rhoR = A_1S/(sigmabarn/mbar)
     return rhoR
+
+def spec_to_power(E : npt.NDArray, spec : npt.NDArray, duration : float = 1.0):
+    """Converts a spectrum (neutrons per MeV) emitted over duration to an integrated power
+
+    Args:
+        E (numpy.array): the array on incoming neutron energies
+        spec (numpy.array): the neutron spectrum at Ein energies
+        duration (float) : time over which neutrons emitted in spec 
+        
+        duration has default value 1.0 such that spec is n/MeV/s
+
+    Returns:
+        float : the DT areal density in kg/m^2
+    """
+
+    power = np.trapz(spec*E,x=E)/duration
+
+    return power
