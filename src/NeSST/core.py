@@ -147,6 +147,41 @@ def yield_from_dt_yield_ratio(reaction : str, dt_yield : float, Tion : float,
 
     return ratio*dt_yield
 
+def yields_normalised(Tion : float, frac_D: float = frac_D_default, frac_T: float = frac_T_default
+                        )  -> typing.Tuple[float, float, float]:
+    """ Assuming same volume and burn time, find fractional yields of DT, DD and TT respectively
+
+        Note that the TT reaction produces two neutrons.
+
+    Args:
+        Tion (float): the temperature of the ions in eV
+        frac_D (float) : fraction of D in fuel
+        frac_T (float) : fraction of T in fuel
+
+    Raises:
+        ValueError: if the Tion is below 0 then a ValueError is raised
+
+    Returns:
+        typing.Tuple[float, float, float]: DT, DD and TT yields, normalised sum of unity
+
+    """
+
+    if Tion < 0:
+        raise ValueError("Tion (temperature of the ions) can not be below 0")
+    
+    if sum([frac_D, frac_T]) != 1.:
+        msg = (f'The frac_D ({frac_D_default}) and frac_T ({frac_T_default}) '
+               'arguments on the yield_from_dt_yield_ration method do not sum to 1.')
+        warnings.warn(msg)
+
+    unnormed_dt_yield = frac_D*frac_T*sm.reac_DT(Tion)
+    unnormed_dd_yield = 0.5*frac_D*frac_D*sm.reac_DD(Tion)
+    unnormed_tt_yield = 2.0*0.5*frac_T*frac_T*sm.reac_TT(Tion)
+
+    tot_yield = unnormed_dt_yield+unnormed_dd_yield+unnormed_tt_yield
+
+    return unnormed_dt_yield/tot_yield,unnormed_dd_yield/tot_yield,unnormed_tt_yield/tot_yield
+
 ###############################################################################
 # Ballabio fits, see Table III of L. Ballabio et al 1998 Nucl. Fusion 38 1723 #
 ###############################################################################
