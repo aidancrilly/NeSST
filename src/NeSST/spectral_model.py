@@ -267,7 +267,7 @@ def reac_DT(Ti,model='BoschHale'):
         return C1*eta**(-0.833333333)*xi**2*np.exp(-3*eta**(0.333333333)*xi)
     elif(model == 'CaughlanFowler'):
         T9 = (Ti_kev*sc.e*1e3/sc.k)/1e9
-        return (1/sc.N_A)*8.09e10/T9**(2./3.)*np.exp(-4.524/T9**(1./3.)-(T9/0.120)**2)* \
+        return (1/sc.N_A)*8.09e4/T9**(2./3.)*np.exp(-4.524/T9**(1./3.)-(T9/0.120)**2)* \
         (1.0+0.092*T9**(1./3.)+1.80*T9**(2./3.)+1.16*T9+10.52*T9**(4./3.)+17.24*T9**(5./3.))
     else:
         print(f'WARNING: DT model name ({model}) not recognised! Default to 0')
@@ -284,7 +284,7 @@ def reac_DD(Ti,model='BoschHale'):
         return C1*eta**(-0.833333333)*xi**2*np.exp(-3*eta**(0.333333333)*xi)
     elif(model == 'CaughlanFowler'):
         T9 = (Ti_kev*sc.e*1e3/sc.k)/1e9
-        return (1/sc.N_A)*1.67e9/T9**(2./3.)*np.exp(-4.872/T9**(1./3.))* \
+        return (1/sc.N_A)*1.67e3/T9**(2./3.)*np.exp(-4.872/T9**(1./3.))* \
         (1.0+0.086*T9**(1./3.)-0.455*T9**(2./3.)-0.272*T9+0.148*T9**(4./3.)+0.225*T9**(5./3.))
     else:
         print(f'WARNING: DD model name ({model}) not recognised! Default to 0')
@@ -298,7 +298,7 @@ def reac_TT(Ti,model='Hale'):
         return TT_reac_McNally_spline(Ti_kev)
     elif(model == 'CaughlanFowler'):
         T9 = (Ti_kev*sc.e*1e3/sc.k)/1e9
-        return (1/sc.N_A)*1.67e9/T9**(2./3.)*np.exp(-4.872/T9**(1./3.))*\
+        return (1/sc.N_A)*1.67e3/T9**(2./3.)*np.exp(-4.872/T9**(1./3.))*\
         (1.0+0.086*T9**(1./3.)-0.455*T9**(2./3.)-0.272*T9+0.148*T9**(4./3.)+0.225*T9**(5./3.))
     else:
         print(f'WARNING: TT model name ({model}) not recognised! Default to 0')
