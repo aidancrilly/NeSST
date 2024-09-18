@@ -255,6 +255,11 @@ TT_reac_Hale_spline = interpolate_1d(TT_reac_Hale_data[:,0]*1e3,TT_reac_Hale_dat
 # Primary reactivities #
 ########################
 
+# References:
+# Bosch Hale: https://doi.org/10.1088/0029-5515/33/12/513
+# Caughlan & Fowler: https://doi.org/10.1146/annurev.aa.13.090175.000441
+# McNally: https://www.osti.gov/servlets/purl/5992170
+
 # Output in m3/s, Ti in eV
 def reac_DT(Ti,model='BoschHale'):
     Ti_kev = Ti/1e3
@@ -267,8 +272,9 @@ def reac_DT(Ti,model='BoschHale'):
         return C1*eta**(-0.833333333)*xi**2*np.exp(-3*eta**(0.333333333)*xi)
     elif(model == 'CaughlanFowler'):
         T9 = (Ti_kev*sc.e*1e3/sc.k)/1e9
-        return (1/sc.N_A)*8.09e4/T9**(2./3.)*np.exp(-4.524/T9**(1./3.)-(T9/0.120)**2)* \
-        (1.0+0.092*T9**(1./3.)+1.80*T9**(2./3.)+1.16*T9+10.52*T9**(4./3.)+17.24*T9**(5./3.))
+        T9_1third = T9**(1./3.)
+        poly = np.polyval([17.24,10.52,1.16,1.80,0.092,1.0],T9_1third)
+        return (1/sc.N_A)*(8.09e4*poly*np.exp(-4.524/T9**(1./3.)-(T9/0.120)**2) + 8.73e2*np.exp(-0.523/T9))/T9**(2./3.)
     else:
         print(f'WARNING: DT model name ({model}) not recognised! Default to 0')
         return np.zeros_like(Ti)
@@ -284,8 +290,9 @@ def reac_DD(Ti,model='BoschHale'):
         return C1*eta**(-0.833333333)*xi**2*np.exp(-3*eta**(0.333333333)*xi)
     elif(model == 'CaughlanFowler'):
         T9 = (Ti_kev*sc.e*1e3/sc.k)/1e9
-        return (1/sc.N_A)*1.67e3/T9**(2./3.)*np.exp(-4.872/T9**(1./3.))* \
-        (1.0+0.086*T9**(1./3.)-0.455*T9**(2./3.)-0.272*T9+0.148*T9**(4./3.)+0.225*T9**(5./3.))
+        T9_1third = T9**(1./3.)
+        poly = np.polyval([-0.071,-0.041,0.6,0.876,0.098,1.0],T9_1third)
+        return (1/sc.N_A)*3.97e2/T9**(2./3.)*np.exp(-4.258/T9**(1./3.))*poly
     else:
         print(f'WARNING: DD model name ({model}) not recognised! Default to 0')
         return np.zeros_like(Ti)
@@ -298,8 +305,9 @@ def reac_TT(Ti,model='Hale'):
         return TT_reac_McNally_spline(Ti_kev)
     elif(model == 'CaughlanFowler'):
         T9 = (Ti_kev*sc.e*1e3/sc.k)/1e9
-        return (1/sc.N_A)*1.67e3/T9**(2./3.)*np.exp(-4.872/T9**(1./3.))*\
-        (1.0+0.086*T9**(1./3.)-0.455*T9**(2./3.)-0.272*T9+0.148*T9**(4./3.)+0.225*T9**(5./3.))
+        T9_1third = T9**(1./3.)
+        poly = np.polyval([0.225,0.148,-0.272,-0.455,0.086,1.0],T9_1third)
+        return (1/sc.N_A)*1.67e3/T9**(2./3.)*np.exp(-4.872/T9**(1./3.))*poly
     else:
         print(f'WARNING: TT model name ({model}) not recognised! Default to 0')
         return np.zeros_like(Ti)
