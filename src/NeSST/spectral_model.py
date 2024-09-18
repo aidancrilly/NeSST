@@ -248,7 +248,7 @@ TT_2dinterp  = interpolate_2d(TT_spec_E,TT_spec_T,TT_spec_dNdE,method='linear',b
 # TT_reac_data = np.loadtxt(data_dir + "TT_reac_ENDF.dat")       # sigmav im m^3/s   # From ENDF
 # TT_reac_spline = interpolate_1d(TT_reac_data[:,0],TT_reac_data[:,1],method='linear',bounds_error=False,fill_value=0.0)
 TT_reac_data = np.loadtxt(data_dir + "TT_reac_Hale.dat")       # T in MeV, sigmav im cm^3/s   # From Hale
-TT_reac_spline = interpolate_1d(TT_reac_data[:,0]*1e-3,TT_reac_data[:,1]*1e-6,method='linear',bounds_error=False,fill_value=0.0)
+TT_reac_spline = interpolate_1d(TT_reac_data[:,0]*1e3,TT_reac_data[:,1]*1e-6,method='linear',bounds_error=False,fill_value=0.0)
 
 ########################
 # Primary reactivities #
