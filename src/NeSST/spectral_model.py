@@ -244,33 +244,70 @@ TT_spec_dNdE = TT_data[:,1:]/1e6            # 1/MeV to 1/eV
 TT_2dinterp  = interpolate_2d(TT_spec_E,TT_spec_T,TT_spec_dNdE,method='linear',bounds_error=False,fill_value=0.0)
 
 # TT reactivity
-# TT_reac_data = np.loadtxt(data_dir + "TT_reac_McNally.dat")  # sigmav im m^3/s   # From https://www.osti.gov/servlets/purl/5992170 - N.B. not in agreement with experimental measurements
+TT_reac_McNally_data = np.loadtxt(data_dir + "TT_reac_McNally.dat")  # sigmav im m^3/s   # From https://www.osti.gov/servlets/purl/5992170 - N.B. not in agreement with experimental measurements
+TT_reac_McNally_spline = interpolate_1d(TT_reac_McNally_data[:,0],TT_reac_McNally_data[:,1],method='linear',bounds_error=False,fill_value=0.0)
+TT_reac_Hale_data = np.loadtxt(data_dir + "TT_reac_Hale.dat")       # T in MeV, sigmav im cm^3/s   # From Hale
+TT_reac_Hale_spline = interpolate_1d(TT_reac_Hale_data[:,0]*1e3,TT_reac_Hale_data[:,1]*1e-6,method='linear',bounds_error=False,fill_value=0.0)
 # TT_reac_data = np.loadtxt(data_dir + "TT_reac_ENDF.dat")       # sigmav im m^3/s   # From ENDF
 # TT_reac_spline = interpolate_1d(TT_reac_data[:,0],TT_reac_data[:,1],method='linear',bounds_error=False,fill_value=0.0)
-TT_reac_data = np.loadtxt(data_dir + "TT_reac_Hale.dat")       # T in MeV, sigmav im cm^3/s   # From Hale
-TT_reac_spline = interpolate_1d(TT_reac_data[:,0]*1e3,TT_reac_data[:,1]*1e-6,method='linear',bounds_error=False,fill_value=0.0)
 
 ########################
 # Primary reactivities #
 ########################
 
-# Bosh Hale DT and DD reactivities
-# Taken from Atzeni & Meyer ter Vehn page 19
+# References:
+# Bosch Hale: https://doi.org/10.1088/0029-5515/33/12/513
+# Caughlan & Fowler: https://doi.org/10.1146/annurev.aa.13.090175.000441
+# McNally: https://www.osti.gov/servlets/purl/5992170
+
 # Output in m3/s, Ti in eV
-def reac_DT(Ti):
+def reac_DT(Ti,model='BoschHale'):
     Ti_kev = Ti/1e3
-    C1 = 643.41e-22
-    xi = 6.6610*Ti_kev**(-0.333333333)
-    eta = 1-np.polyval([-0.10675e-3,4.6064e-3,15.136e-3,0.0e0],Ti_kev)/np.polyval([0.01366e-3,13.5e-3,75.189e-3,1.0e0],Ti_kev)
-    return C1*eta**(-0.833333333)*xi**2*np.exp(-3*eta**(0.333333333)*xi)
-
-def reac_DD(Ti):
+    if(model == 'BoschHale'):
+        # Bosch Hale DT and DD reactivities
+        # Taken from Atzeni & Meyer ter Vehn page 19
+        C1 = 643.41e-22
+        xi = 6.6610*Ti_kev**(-0.333333333)
+        eta = 1-np.polyval([-0.10675e-3,4.6064e-3,15.136e-3,0.0e0],Ti_kev)/np.polyval([0.01366e-3,13.5e-3,75.189e-3,1.0e0],Ti_kev)
+        return C1*eta**(-0.833333333)*xi**2*np.exp(-3*eta**(0.333333333)*xi)
+    elif(model == 'CaughlanFowler'):
+        T9 = (Ti_kev*sc.e*1e3/sc.k)/1e9
+        T9_1third = T9**(1./3.)
+        poly = np.polyval([17.24,10.52,1.16,1.80,0.092,1.0],T9_1third)
+        return (1/sc.N_A)*(8.09e4*poly*np.exp(-4.524/T9**(1./3.)-(T9/0.120)**2) + 8.73e2*np.exp(-0.523/T9))/T9**(2./3.)
+    else:
+        print(f'WARNING: DT model name ({model}) not recognised! Default to 0')
+        return np.zeros_like(Ti)
+    
+def reac_DD(Ti,model='BoschHale'):
     Ti_kev = Ti/1e3
-    C1 = 3.5741e-22
-    xi = 6.2696*Ti_kev**(-0.333333333)
-    eta = 1-np.polyval([5.8577e-3,0.0e0],Ti_kev)/np.polyval([-0.002964e-3,7.6822e-3,1.0e0],Ti_kev)
-    return C1*eta**(-0.833333333)*xi**2*np.exp(-3*eta**(0.333333333)*xi)
-
-def reac_TT(Ti):
+    if(model == 'BoschHale'):
+        # Bosch Hale DT and DD reactivities
+        # Taken from Atzeni & Meyer ter Vehn page 19
+        C1 = 3.5741e-22
+        xi = 6.2696*Ti_kev**(-0.333333333)
+        eta = 1-np.polyval([5.8577e-3,0.0e0],Ti_kev)/np.polyval([-0.002964e-3,7.6822e-3,1.0e0],Ti_kev)
+        return C1*eta**(-0.833333333)*xi**2*np.exp(-3*eta**(0.333333333)*xi)
+    elif(model == 'CaughlanFowler'):
+        T9 = (Ti_kev*sc.e*1e3/sc.k)/1e9
+        T9_1third = T9**(1./3.)
+        poly = np.polyval([-0.071,-0.041,0.6,0.876,0.098,1.0],T9_1third)
+        return (1/sc.N_A)*3.97e2/T9**(2./3.)*np.exp(-4.258/T9**(1./3.))*poly
+    else:
+        print(f'WARNING: DD model name ({model}) not recognised! Default to 0')
+        return np.zeros_like(Ti)
+    
+def reac_TT(Ti,model='Hale'):
     Ti_kev = Ti/1e3
-    return TT_reac_spline(Ti_kev)
+    if(model == 'Hale'):
+        return TT_reac_Hale_spline(Ti_kev)
+    elif(model == 'McNally'):
+        return TT_reac_McNally_spline(Ti_kev)
+    elif(model == 'CaughlanFowler'):
+        T9 = (Ti_kev*sc.e*1e3/sc.k)/1e9
+        T9_1third = T9**(1./3.)
+        poly = np.polyval([0.225,0.148,-0.272,-0.455,0.086,1.0],T9_1third)
+        return (1/sc.N_A)*1.67e3/T9**(2./3.)*np.exp(-4.872/T9**(1./3.))*poly
+    else:
+        print(f'WARNING: TT model name ({model}) not recognised! Default to 0')
+        return np.zeros_like(Ti)

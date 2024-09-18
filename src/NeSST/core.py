@@ -112,6 +112,7 @@ def yield_from_dt_yield_ratio(reaction : str, dt_yield : float, Tion : float,
         rate_ij = (f_{i}*f_{j}*sigmav_{i,j}(T))/(1+delta_{i,j})  # dN/dVdt
         yield_ij = (rate_ij/rate_dt)*yield_dt
 
+        Uses default models for reactivities
         Note that the TT reaction produces two neutrons.
 
     Args:
@@ -151,6 +152,7 @@ def yields_normalised(Tion : float, frac_D: float = frac_D_default, frac_T: floa
                         )  -> typing.Tuple[float, float, float]:
     """ Assuming same volume and burn time, find fractional yields of DT, DD and TT respectively
 
+        Uses default models for reactivities
         Note that the TT reaction produces two neutrons.
 
     Args:
