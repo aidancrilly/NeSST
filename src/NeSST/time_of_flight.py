@@ -192,3 +192,48 @@ class nToF:
         dNdt = self.get_dNdt(dNdE)
 
         return self.detector_time,self.detector_normtime,dNdt
+    
+class Noise:
+
+    def __init__(self,det_solid_angle,det_efficiency):
+        self.det_solid_angle = det_solid_angle
+        self.det_efficiency  = det_efficiency
+
+    def add_statistical_noise(self,t,signal,Y):
+        N = Y*self.det_solid_angle*self.det_efficiency
+        N_signal = N/np.trapz(signal,x=t)*signal
+        dt = t[1]-t[0]
+        poisson_signal = np.random.poisson(lam=N_signal*dt)
+
+        return poisson_signal
+    
+    def add_shot_noise(self,t,signal,Y,SNR):
+        N = np.amax(signal)/SNR
+        noised_signal = signal+np.random.poisson(lam=N,size=signal.shape)-N
+
+        return noised_signal
+    
+    def __call__(self,t,signal,Y,SNR):
+        signal = self.add_statistical_noise(t,signal,Y)
+        signal = self.add_shot_noise(t,signal,Y,SNR)
+        return signal
+
+class Scope:
+
+    def __init__(self,sampling_frequency,bit_size):
+        self.sampling_frequency = sampling_frequency
+        self.num_levels = int(2**bit_size)
+
+    def __call__(self,t,signal):
+        t_scope = np.arange(t[0],t[-1],1/self.sampling_frequency)
+
+        signal_scope = np.interp(t_scope,t,signal)
+        signal_steps = np.linspace(np.amin(signal),np.amax(signal),self.num_levels)
+        signal_scope = interpolate_1d(signal_steps,signal_steps,method='nearest')(signal_scope)
+
+        t_scope = np.append(t_scope,t_scope[1:]-0.01/self.sampling_frequency)
+        ordering = np.argsort(t_scope)
+        t_scope  = t_scope[ordering]
+        signal_scope = np.append(signal_scope,signal_scope)[ordering]
+
+        return t_scope,signal_scope
