@@ -487,6 +487,32 @@ def DT_scatter_spec_w_ionkin(I_E : npt.NDArray, vbar : float, dv : float, rhoL_f
     total = nD+nT+Dn2n+Tn2n
     return total,(nD,nT,Dn2n,Tn2n)
 
+def DT_transmission(rhoL : float, E_in : npt.NDArray, rhoL_func : callable,
+                    frac_D: float = frac_D_default, frac_T: float = frac_T_default) -> npt.NDArray:
+    """
+    Calculates the straight line transmission of primary fusion sources through the DT areal density
+
+    The areal density function rhoL_func needs to be a callable function with a 
+    single argument (cosine[theta])
+
+    Args:
+        rhoL (float): the (4-pi averaged) areal density of the DT
+        E_in (numpy.array): the energy array of the primary neutron spectrum
+        rhoL_func (callable): must be a single argument function f(x), 
+        where x e [-1,1] and f(x) e [0,inf] and int f(x) dx = 1
+        frac_D (float) : fraction of D in fuel
+        frac_T (float) : fraction of T in fuel
+
+    Returns:
+        numpy.array: the total transmission coefficient as calculated
+    
+        exp[ - A_1S rhoL_func(1) (f_D sigma_{D,tot}(Ein) + f_T sigma_{T,tot}(Ein)) ]
+
+    """
+    A_1S = rhoR_2_A1s(rhoL,frac_D=frac_D,frac_T=frac_T)
+    tot_xsec = frac_D*mat_dict['D'].sigma_tot(E_in) + frac_T*mat_dict['T'].sigma_tot(E_in)
+    return np.exp(-A_1S*rhoL_func(1.0)*tot_xsec)
+
 def mat_scatter_spec(mat : typing.Type[sm.material_data],
                      I_E : npt.NDArray, rhoL_func : callable) -> npt.NDArray:
     """Calculates a material's single scattered neutron spectrum given a 
@@ -516,6 +542,31 @@ def mat_scatter_spec(mat : typing.Type[sm.material_data],
     if(mat.l_inelastic):
         total += mat.inelastic_dNdE
     return total
+
+def mat_transmission(mat : typing.Type[sm.material_data],
+                     rhoL : float, E_in : npt.NDArray, rhoL_func : callable) -> npt.NDArray:
+    """
+    Calculates the straight line transmission of primary fusion sources through a material's areal density
+
+    The areal density function rhoL_func needs to be a callable function with a 
+    single argument (cosine[theta])
+
+    Args:
+        mat (material_data) : Material data class for attenuating medium
+        rhoL (float): the (4-pi averaged) areal density of the DT
+        E_in (numpy.array): the energy array of the primary neutron spectrum
+        rhoL_func (callable): must be a single argument function f(x), 
+        where x e [-1,1] and f(x) e [0,inf] and int f(x) dx = 1
+
+    Returns:
+        numpy.array: the total transmission coefficient as calculated
+    
+        exp[ - A_1S rhoL_func(1) (f_D sigma_{D,tot}(Ein) + f_T sigma_{T,tot}(Ein)) ]
+
+    """
+    tot_xsec = mat.sigma_tot(E_in)
+    A_1S = mat.rhoR_2_A1s(rhoL)
+    return np.exp(-A_1S*rhoL_func(1.0)*tot_xsec)
 
 ###############################
 # Full model fitting function #
