@@ -98,14 +98,14 @@ def get_transit_time_tophat_IRF(scintillator_thickness):
         return R
     return transit_time_tophat_IRF
 
-def get_transit_time_tophat_w_decayingGaussian_IRF(scintillator_thickness,gaussian_FWHM,decay_time):
+def get_transit_time_tophat_w_decayingGaussian_IRF(scintillator_thickness,gaussian_FWHM,decay_time,sig_shift=2.0):
     """
     
     See: https://pubs.aip.org/aip/rsi/article/68/1/610/1070804/Interpretation-of-neutron-time-of-flight-signals
 
     """
     sig = gaussian_FWHM/2.355
-    shift_t = 2*sig
+    shift_t = sig_shift*sig
     def filter(t):
         t_shift = t-shift_t
         erf_arg = (t_shift-sig**2/decay_time)/np.sqrt(2*sig**2)
@@ -124,6 +124,40 @@ def get_transit_time_tophat_w_decayingGaussian_IRF(scintillator_thickness,gaussi
         R /= R_norm[:,None]
         return R
     return transit_time_tophat_w_decayingGaussian_IRF
+
+def get_transit_time_tophat_w_doubledecayingGaussian_IRF(scintillator_thickness,gaussian_FWHM,decay_times,comp_1_frac,sig_shift=2.0):
+    """
+    
+    See: https://pubs.aip.org/aip/rsi/article/68/1/610/1070804/Interpretation-of-neutron-time-of-flight-signals
+
+    """
+
+    sig = gaussian_FWHM/2.355
+    shift_t = sig_shift*sig
+
+    def single_decay_comp(t,decay_time):
+        t_shift = t-shift_t
+        erf_arg = (t_shift-sig**2/decay_time)/np.sqrt(2*sig**2)
+        gauss = np.exp(-t_shift/decay_time)*np.exp(0.5*sig**2/decay_time**2)/(2*decay_time)*(1+erf(erf_arg))
+        gauss *= 0.5*(1+erf(t/sig))
+        return gauss 
+    
+    def filter(t):
+        total = comp_1_frac*single_decay_comp(t,decay_times[0])+(1-comp_1_frac)*single_decay_comp(t,decay_times[1])
+        return total/np.trapz(total,x=t)
+    
+    _tophat_IRF = get_transit_time_tophat_IRF(scintillator_thickness)
+    def transit_time_tophat_w_doubledecayingGaussian_IRF(t_detected,En):
+        R = _tophat_IRF(t_detected,En)
+        t_filter = t_detected-0.5*(t_detected[-1]+t_detected[0])
+        filt = filter(t_filter)
+        R = np.apply_along_axis(lambda m : np.convolve(m,filt,mode='same'), axis=0, arr=R)
+        R_norm = np.sum(R,axis=1)
+        # Catch the zeros
+        R_norm[R_norm == 0] = 1
+        R /= R_norm[:,None]
+        return R
+    return transit_time_tophat_w_doubledecayingGaussian_IRF
 
 def get_transit_time_tophat_w_tGaussian_IRF(scintillator_thickness,gaussian_FWHM,tgaussian_peak_pos):
     sig = gaussian_FWHM/2.355
