@@ -192,37 +192,26 @@ class nToF:
         else:
             self.detector_normtime = detector_normtime
         self.detector_time     = self.detector_normtime*self.distance/c
-        # Init instrument response values to None
-        self.dEdt    = None
-        self.sens    = None
-        self.R       = None
-        self.En_dNdE = None
+        # Init instrument response values
+        self.compute_instrument_response()
 
-    def compute_instrument_reponse(self,En):
-        self.En_dNdE = En
-        self.dEdt = Jacobian_dEdnorm_t(En,Mn)
-
+    def compute_instrument_response(self):
         self.En_det = beta_2_Ekin(1.0/self.detector_normtime,Mn)
         
+        self.dEdt = Jacobian_dEdnorm_t(self.En_det,Mn)
         self.sens = self.sensitivity(self.En_det)
         self.R = self.instrument_response_function(self.detector_time,self.En_det)
 
-    def get_dNdt(self,dNdE):
-        dNdt = dNdE*self.dEdt
-        dNdt_interp = interpolate_1d(self.En_dNdE,dNdt,bounds_error=False,fill_value=0.0)
-        return dNdt_interp(self.En_det)
+    def get_dNdt(self,En,dNdE):
+        dNdE_interp = np.interp(self.En_det,En,dNdE,left=0.0,right=0.0)
+        return dNdE_interp*self.dEdt
 
     def get_signal(self,En,dNdE):
-        if(not np.array_equal(En,self.En_dNdE)):
-            self.compute_instrument_reponse(En)
-        dNdt = self.get_dNdt(dNdE)
+        dNdt = self.get_dNdt(En,dNdE)
 
         return self.detector_time,self.detector_normtime,np.matmul(self.R,self.sens*dNdt)
     
     def get_signal_no_IRF(self,En,dNdE):
-        if(not np.array_equal(En,self.En_dNdE)):
-            self.En_dNdE = En
-            self.dEdt = Jacobian_dEdnorm_t(En,Mn)
-        dNdt = self.get_dNdt(dNdE)
+        dNdt = self.get_dNdt(En,dNdE)
 
         return self.detector_time,self.detector_normtime,dNdt
