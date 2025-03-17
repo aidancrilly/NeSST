@@ -4,6 +4,7 @@ from NeSST.utils import *
 from NeSST.endf_interface import retrieve_total_cross_section_from_ENDF_file
 import numpy as np
 from scipy.integrate import cumulative_trapezoid as cumtrapz
+from scipy.integrate import quad
 from scipy.special import erf
 
 from dataclasses import dataclass,field
@@ -57,6 +58,18 @@ def get_power_law_NLO(p,Enorm=E0_DT):
     return power_law_NLO
 
 def get_Verbinski_NLO(Enorm=E0_DT):
+    """
+    Using equation (3) from
+
+    Qi Tang, Zifeng Song, Pinyang Liu, Bo Yu, Jiamin Yang,
+    Calibration of the sensitivity of the bibenzyl-based scintillation detector to 1–5 MeV neutrons,
+    Nuclear Instruments and Methods in Physics Research Section A: Accelerators, Spectrometers, Detectors and Associated Equipment,
+    Volume 1068,
+    2024,
+    169779,
+    ISSN 0168-9002,
+    https://doi.org/10.1016/j.nima.2024.169779.
+    """
     V_E,V_L = np.loadtxt(data_dir+'VerbinskiLproton.csv',delimiter=',',unpack=True)
     cumulative_L = cumtrapz(y=np.insert(V_L,0,0.0),x=np.insert(V_E,0,0.0))
     L_integral = interpolate_1d(np.insert(V_E,0,0.0)*1e6,np.insert(cumulative_L,0,0.0),method='cubic')
@@ -70,6 +83,93 @@ def get_Verbinski_NLO(Enorm=E0_DT):
         return Verbinski_NLO(E)/A
     
     return norm_Verbinski_NLO
+
+def get_BirksBetheBloch_NLO(akB,Enorm=E0_DT):
+    """
+    akB in eV
+
+    Combining:
+    kB in m/eV
+    a in eV^2/m
+    Bethe-Bloch formula for stopping power:
+        dE/dx = a/E
+
+    Birks relation for light response:
+        dL/dx \propto (dEdx)/(1+kB (dE/dx))
+
+    Using equation (3), (7) from
+
+    Qi Tang, Zifeng Song, Pinyang Liu, Bo Yu, Jiamin Yang,
+    Calibration of the sensitivity of the bibenzyl-based scintillation detector to 1–5 MeV neutrons,
+    Nuclear Instruments and Methods in Physics Research Section A: Accelerators, Spectrometers, Detectors and Associated Equipment,
+    Volume 1068,
+    2024,
+    169779,
+    ISSN 0168-9002,
+    https://doi.org/10.1016/j.nima.2024.169779.
+    """
+
+    def BirksBetheBloch_NLO(E):
+        L_integral = 0.5*E**2-akB*E-akB*(akB+E)*np.log(1.0+E/akB)
+        return mat_dict['H'].sigma(E)*L_integral/E
+    
+    A = BirksBetheBloch_NLO(Enorm)
+
+    def norm_BirksBetheBloch_NLO(E):
+        return BirksBetheBloch_NLO(E)/A
+    
+    return norm_BirksBetheBloch_NLO
+
+def get_BirksBethe_NLO(akB,I,mp = sc.m_p,Enorm=E0_DT):
+    """
+    akB in eV
+
+    Combining:
+    kB in m/eV
+    a in eV^2/m
+    Bethe formula for stopping power:
+        dE/dx = a/E * ln(4 me E / mp I)
+
+    Birks relation for light response:
+        dL/dx \propto (dEdx)/(1+kB (dE/dx))
+
+    Using equation (3), (7) from
+
+    Qi Tang, Zifeng Song, Pinyang Liu, Bo Yu, Jiamin Yang,
+    Calibration of the sensitivity of the bibenzyl-based scintillation detector to 1–5 MeV neutrons,
+    Nuclear Instruments and Methods in Physics Research Section A: Accelerators, Spectrometers, Detectors and Associated Equipment,
+    Volume 1068,
+    2024,
+    169779,
+    ISSN 0168-9002,
+    https://doi.org/10.1016/j.nima.2024.169779.
+    """
+    Istar = I * mp / sc.m_e / 4.0
+
+    def kB_dEdx(Ep):
+        Ep_lim = max([Ep,np.e*Istar])
+        return akB/Ep_lim*np.log(Ep_lim/Istar)
+
+    def dLdE(Ep):
+        return 1.0/(1.0+kB_dEdx(Ep))
+    
+    def L(Ep):
+        return quad(dLdE,0.0,Ep)[0]
+    
+    def L_integral_scalar(En):
+        return quad(L,0.0,En)[0]
+    
+    L_integral = np.vectorize(L_integral_scalar)
+
+    def BirksBethe_NLO(E):
+        return mat_dict['H'].sigma(E)*L_integral(E)/E
+    
+    A = BirksBethe_NLO(Enorm)
+
+    def norm_BirksBethe_NLO(E):
+        return BirksBethe_NLO(E)/A
+    
+    return norm_BirksBethe_NLO,kB_dEdx,L
 
 def get_unity_sensitivity():
     def unity_sensitivity(En):
