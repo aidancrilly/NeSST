@@ -106,6 +106,7 @@ class material_data:
         muc    = col.muc(self.A,Ei,Eo,1.0,-1.0,0.0)
         sigma  = self.sigma(self.Ein)
         self.elastic_mu0 = col.mu_out(self.A,Ei,Eo,0.0)
+        self.elastic_mu0[np.abs(self.elastic_mu0) > 1.0] = np.nan
         if(self.elastic_legendre):
             Tlcoeff,Nl     = xs.interp_Tlcoeff(self.legendre_dx_spline,self.Ein)
             Tlcoeff_interp = 0.5*(2*np.arange(0,Nl)+1)*Tlcoeff
@@ -128,9 +129,11 @@ class material_data:
             kin_a  = np.sqrt(kin_a2_safe)
             kin_b  = 1.0/(self.A+1)
             muc    = ((Eo/Ei)-kin_a**2-kin_b**2)/(2*kin_a*kin_b)
+            muc[kin_a2 < 0.0] = np.nan
             sigma  = self.isigma[i_inelastic](self.Ein)
             inelastic_mu0 = (np.sqrt(Eo/Ei)-(kin_a**2-kin_b**2)*np.sqrt(Ei/Eo))/(2*kin_b)
-            inelastic_mu0[kin_a2 < 0.0] = 0.0
+            inelastic_mu0[np.abs(inelastic_mu0) > 1.0] = np.nan
+            inelastic_mu0[kin_a2 < 0.0] = np.nan
             self.inelastic_mu0.append(inelastic_mu0)
 
             if(self.inelastic_legendre[i_inelastic]):
