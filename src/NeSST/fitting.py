@@ -1,4 +1,3 @@
-from NeSST.constants import *
 from NeSST.core import *
 from NeSST.utils import *
 
