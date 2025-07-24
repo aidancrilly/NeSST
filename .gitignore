@@ -3,3 +3,6 @@ NeSST/__pycache__/
 example/.ipynb_checkpoints/
 *.egg-info
 dist/
+.vscode/
+
+notebook/

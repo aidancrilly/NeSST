@@ -23,7 +23,7 @@ E-mail: ac116@ic.ac.uk
 
 ## Installation
 
-- Easier method: Install from PyPI 
+- Easier method: Install from PyPI
 
 ```
 pip install NeSST

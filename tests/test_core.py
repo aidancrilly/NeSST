@@ -1,6 +1,6 @@
-import pytest
-import numpy as np
 import NeSST as nst
+import numpy as np
+import pytest
 
 
 def test_DTprimspecmoments_mean():
@@ -36,13 +36,15 @@ def test_DTprimspecmoments_mean_with_tion():
 
     assert DTmean_cold < DTmean_hot  # units eV
 
+
 def test_DTprimspecmoments_variance_with_tion():
     # checks the relative magnitude of the var
 
     _, _, DTvar_cold = nst.DTprimspecmoments(Tion=5.0e3)  # units eV
-    _, _,DTvar_hot = nst.DTprimspecmoments(Tion=10.0e3)  # units eV
+    _, _, DTvar_hot = nst.DTprimspecmoments(Tion=10.0e3)  # units eV
 
     assert DTvar_cold < DTvar_hot  # units eV**2
+
 
 def test_DDprimspecmoments_variance_with_tion():
     # checks the relative magnitude of the var
@@ -52,15 +54,17 @@ def test_DDprimspecmoments_variance_with_tion():
 
     assert DDvar_cold < DDvar_hot  # units eV**2
 
+
 def test_DDprimspecmoments_variance_relative_size():
     # checks the relative magnitude of the var
 
     DDmean, DDstddev, DDvar = nst.DDprimspecmoments(Tion=5.0e3)  # units eV
 
     # Check that the standard deviation is about 3% of the mean value
-    assert np.isclose((100/DDmean)*DDstddev, 3, atol=0.3)
+    assert np.isclose((100 / DDmean) * DDstddev, 3, atol=0.3)
     # Check variance is standard deviation squared
     assert np.isclose(DDvar, DDstddev**2)
+
 
 def test_DTprimspecmoments_variance_relative_size():
     # checks the relative magnitude of the var
@@ -68,6 +72,6 @@ def test_DTprimspecmoments_variance_relative_size():
     DTmean, DTstddev, DTvar = nst.DTprimspecmoments(Tion=5.0e3)  # units eV
 
     # Check that the standard deviation is about 3% of the mean value
-    assert np.isclose((100/DTmean)*DTstddev, 1, atol=0.3)
+    assert np.isclose((100 / DTmean) * DTstddev, 1, atol=0.3)
     # Check variance is standard deviation squared
     assert np.isclose(DTvar, DTstddev**2)

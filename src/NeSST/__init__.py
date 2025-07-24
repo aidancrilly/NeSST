@@ -1,5 +1,5 @@
 ##################
 from .constants import *
 from .core import *
-import NeSST.fitting
-import NeSST.time_of_flight
+from .fitting import *
+from .time_of_flight import *
