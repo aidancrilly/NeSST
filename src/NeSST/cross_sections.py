@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 
 import numpy as np
+import numpy.typing as npt
 from numpy.polynomial.legendre import legval
 from scipy.interpolate import griddata
 
