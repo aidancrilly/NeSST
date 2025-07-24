@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "NeSST"
-version = "1.1.1"
+version = "1.1.2"
 description = "Neutron Scattered Spectra Tool, ICF primary and scattered neutron spectroscopy analysis code"
 readme = "README.md"
 classifiers = [
