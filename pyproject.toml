@@ -32,7 +32,7 @@ dependencies = [
 
 [project.optional-dependencies]
 test = [
-    "pre-commit","pytest", "jupyter", "matplotlib"
+    "pre-commit", "pytest", "pytest_cases", "jupyter", "matplotlib"
 ]
 
 [tool.setuptools.package-data]
