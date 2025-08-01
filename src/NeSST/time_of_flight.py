@@ -233,7 +233,7 @@ class Scintillator1DMonteCarlo:
 
         Returns list of interaction times and energy deposited at that time
         """
-        Ein, ni, l = args
+        Ein, ni, length = args
         x = 0
         dir = +1
         E = Ein
@@ -245,7 +245,7 @@ class Scintillator1DMonteCarlo:
         ts = []
         Es = []
         while in_scintillator:
-            path_to_exit = (l - x) * (dir + 1) / 2.0 + x * (1 - dir) / 2.0
+            path_to_exit = (length - x) * (dir + 1) / 2.0 + x * (1 - dir) / 2.0
             path = -np.log(np.random.rand()) / (ni * sig)
             if path < path_to_exit:
                 t += path / v
@@ -255,7 +255,7 @@ class Scintillator1DMonteCarlo:
                 ts.append(t)
                 Es.append(E - Enext)
 
-                mu = np.sqrt(Enext / E)
+                # mu = np.sqrt(Enext / E)
                 E = Enext
                 v = self.E_2_v(E)
                 sig = self.sig_p(E)
@@ -333,7 +333,7 @@ def top_hat(scint_thickness):
     return base
 
 
-def inversegaussian_nIRF(scint_thickness, ni_scin = 1e29):
+def inversegaussian_nIRF(scint_thickness, ni_scin=1e29):
     def sig_p(E):
         return (4.83 / np.sqrt(E / 1e6) - 0.578) * 1e-28
 
@@ -354,8 +354,8 @@ def inversegaussian_nIRF(scint_thickness, ni_scin = 1e29):
         A = (0.30110498 - 0.00491061 * E_MeV) * (1 - np.exp(-E_MeV / 2.0801267))
         mu_inverse_ns = -0.3371536 + E_MeV**0.59130151
         lamb_inverse_ns = 0.18257606 * E_MeV + 2.62378105
-        mu = mu_inverse_ns*1e9
-        lamb = lamb_inverse_ns*1e9
+        mu = mu_inverse_ns * 1e9
+        lamb = lamb_inverse_ns * 1e9
         return f, A, mu, lamb
 
     def base(t_detected, En):
@@ -365,13 +365,11 @@ def inversegaussian_nIRF(scint_thickness, ni_scin = 1e29):
         tt_d, tt_a = np.meshgrid(t_detected, t_detected, indexing="ij")
         _, tt_t = np.meshgrid(t_detected, t_transit, indexing="ij")
 
-        
-
         f, A, mu, lamb = IGtail_nIRF_bestfit_coeffs(En, scint_thickness, ni_scin)
 
         top_hat = np.eye(t_detected.size) + np.heaviside(tt_d - tt_a, 0.0) - np.heaviside(tt_d - (tt_a + tt_t), 1.0)
         exp_E_arg = f * vn * ni_scin * sig_p(En)
-        main_response = np.exp(- (tt_d - tt_a) * exp_E_arg[None, :]) * top_hat
+        main_response = np.exp(-(tt_d - tt_a) * exp_E_arg[None, :]) * top_hat
 
         t_shift = tt_d - (tt_a + tt_t)
         tail_hat = np.heaviside(t_shift, 0.5)
@@ -461,7 +459,7 @@ def make_transit_time_IRF(thickness, kernel_fn, base_matrix_fn=None):
         Anything that returns an (N×N) response matrix *before* filtering.
         If omitted, we fall back to the canonical top-hat.
     """
-    # Fallback to the usual top-hat if the caller doesn’t supply one
+    # Fallback to the usual top-hat if the caller doesn't supply one
     if base_matrix_fn is None:
         base_matrix_fn = top_hat(thickness)
     else:
