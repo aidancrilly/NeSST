@@ -333,29 +333,73 @@ def top_hat(scint_thickness):
     return base
 
 
-def inversegaussian_nIRF(scint_thickness, ni_scin=1e29):
-    def sig_p(E):
-        return (4.83 / np.sqrt(E / 1e6) - 0.578) * 1e-28
+def inversegaussian_nIRF(scint_thickness, ni_scin=8.79e28, CH_ratio=8/18, E_lower = 0.05e6, E_upper = 25.0e6, NE_interp = 1000):
 
-    if scint_thickness != 10e-2 or ni_scin != 1e29:
+    if scint_thickness != 10e-2 or ni_scin != 8.79e28:
         raise NotImplementedError("Current inverse gaussian nIRF fit coefficients for 1e29 1/m^3 and 10cm only!")
 
-    def IGtail_nIRF_bestfit_coeffs(En, scint_thickness, ni_scin):
+    E_range = np.linspace(E_lower,E_upper,NE_interp)
+    sig_H = mat_dict['H'].sigma_tot(E_range)
+    sig_C = mat_dict['C12'].sigma_tot(E_range)
+
+    def sig_CH(E):
+        sig_barns = CH_ratio*np.interp(E,E_range,sig_C)+(1-CH_ratio)*np.interp(E,E_range,sig_H)
+        return sig_barns*1e-28
+
+    def IGtail_nIRF_bestfit_coeffs(En):
         """
         Best fit coefficients as a function of neutron energy
 
-        NB these are specific to a scintillator geometry (10cm, 1e29 p/m^3)
-        For different geometry you must re-perform Scintillator1DMonteCarlo sims
+        NB these are specific to a scintillator geometry
+        For different geometry you must re-perform MCNP/Geant/Scintillator1DMonteCarlo sims
 
-        Analysis performed by A. Crilly, 01/08/2025
+        Analysis performed by A. Crilly, 2025
         """
         E_MeV = En / 1e6
-        f = -0.0054769 * E_MeV + 0.50115357
-        A = (0.30110498 - 0.00491061 * E_MeV) * (1 - np.exp(-E_MeV / 2.0801267))
-        mu_inverse_ns = -0.3371536 + E_MeV**0.59130151
-        lamb_inverse_ns = 0.18257606 * E_MeV + 2.62378105
-        mu = mu_inverse_ns * 1e9
-        lamb = lamb_inverse_ns * 1e9
+        f = 0.46
+        A = 0.25
+
+        Egrid = np.arange(1.0,19.0,step=1.0)
+        mu_inverse_ns = [
+            0.45918122858399824,
+            0.6557307634639333,
+            0.8333427566991481,
+            0.8986859864960112,
+            1.146202470556479,
+            1.2341761264319626,
+            1.2686641782526762,
+            2.8986506749332044,
+            1.4799758893943886,
+            2.3823877852359687,
+            3.84910816578929,
+            3.1966724468523355,
+            4.284122083989886,
+            3.452849096581845,
+            4.838842934652534,
+            9.999999999999998,
+            ]
+
+        lamb_inverse_ns = [
+            0.7552223497006166,
+            1.0369636485550817,
+            1.1703584280444446,
+            1.4085037422394058,
+            1.445604993812616,
+            1.464511388605816,
+            1.6795667261078404,
+            1.3844968569428273,
+            1.7564016389637123,
+            1.6801129259460668,
+            1.6345197013154014,
+            1.7884346810613823,
+            1.7955059618288889,
+            1.8762280752322453,
+            1.9247350785402442,
+            1.8572104736139436,
+            ]
+
+        mu = np.interp(E_MeV,Egrid,mu_inverse_ns) * 1e9
+        lamb = np.interp(E_MeV,Egrid,lamb_inverse_ns) * 1e9
         return f, A, mu, lamb
 
     def base(t_detected, En):
@@ -365,10 +409,10 @@ def inversegaussian_nIRF(scint_thickness, ni_scin=1e29):
         tt_d, tt_a = np.meshgrid(t_detected, t_detected, indexing="ij")
         _, tt_t = np.meshgrid(t_detected, t_transit, indexing="ij")
 
-        f, A, mu, lamb = IGtail_nIRF_bestfit_coeffs(En, scint_thickness, ni_scin)
+        f, A, mu, lamb = IGtail_nIRF_bestfit_coeffs(En)
 
         top_hat = np.eye(t_detected.size) + np.heaviside(tt_d - tt_a, 0.0) - np.heaviside(tt_d - (tt_a + tt_t), 1.0)
-        exp_E_arg = f * vn * ni_scin * sig_p(En)
+        exp_E_arg = f * vn * ni_scin * sig_CH(En)
         main_response = np.exp(-(tt_d - tt_a) * exp_E_arg[None, :]) * top_hat
 
         t_shift = tt_d - (tt_a + tt_t)
