@@ -333,18 +333,19 @@ def top_hat(scint_thickness):
     return base
 
 
-def inversegaussian_nIRF(scint_thickness, ni_scin=8.79e28, CH_ratio=8/18, E_lower = 0.05e6, E_upper = 25.0e6, NE_interp = 1000):
-
+def inversegaussian_nIRF(
+    scint_thickness, ni_scin=8.79e28, CH_ratio=8 / 18, E_lower=0.05e6, E_upper=25.0e6, NE_interp=1000
+):
     if scint_thickness != 10e-2 or ni_scin != 8.79e28:
         raise NotImplementedError("Current inverse gaussian nIRF fit coefficients for 1e29 1/m^3 and 10cm only!")
 
-    E_range = np.linspace(E_lower,E_upper,NE_interp)
-    sig_H = mat_dict['H'].sigma_tot(E_range)
-    sig_C = mat_dict['C12'].sigma_tot(E_range)
+    E_range = np.linspace(E_lower, E_upper, NE_interp)
+    sig_H = mat_dict["H"].sigma_tot(E_range)
+    sig_C = mat_dict["C12"].sigma_tot(E_range)
 
     def sig_CH(E):
-        sig_barns = CH_ratio*np.interp(E,E_range,sig_C)+(1-CH_ratio)*np.interp(E,E_range,sig_H)
-        return sig_barns*1e-28
+        sig_barns = CH_ratio * np.interp(E, E_range, sig_C) + (1 - CH_ratio) * np.interp(E, E_range, sig_H)
+        return sig_barns * 1e-28
 
     def IGtail_nIRF_bestfit_coeffs(En):
         """
@@ -359,7 +360,7 @@ def inversegaussian_nIRF(scint_thickness, ni_scin=8.79e28, CH_ratio=8/18, E_lowe
         f = 0.46
         A = 0.25
 
-        Egrid = np.arange(1.0,19.0,step=1.0)
+        Egrid = np.arange(1.0, 19.0, step=1.0)
         mu_inverse_ns = [
             0.45918122858399824,
             0.6557307634639333,
@@ -377,7 +378,7 @@ def inversegaussian_nIRF(scint_thickness, ni_scin=8.79e28, CH_ratio=8/18, E_lowe
             3.452849096581845,
             4.838842934652534,
             9.999999999999998,
-            ]
+        ]
 
         lamb_inverse_ns = [
             0.7552223497006166,
@@ -396,10 +397,10 @@ def inversegaussian_nIRF(scint_thickness, ni_scin=8.79e28, CH_ratio=8/18, E_lowe
             1.8762280752322453,
             1.9247350785402442,
             1.8572104736139436,
-            ]
+        ]
 
-        mu = np.interp(E_MeV,Egrid,mu_inverse_ns) * 1e9
-        lamb = np.interp(E_MeV,Egrid,lamb_inverse_ns) * 1e9
+        mu = np.interp(E_MeV, Egrid, mu_inverse_ns) * 1e9
+        lamb = np.interp(E_MeV, Egrid, lamb_inverse_ns) * 1e9
         return f, A, mu, lamb
 
     def base(t_detected, En):
