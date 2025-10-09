@@ -357,10 +357,9 @@ def inversegaussian_nIRF(
         Analysis performed by A. Crilly, 2025
         """
         E_MeV = En / 1e6
-        f = 0.46
-        A = 0.25
+        f = 0.46 * np.ones_like(E_MeV)
+        A = 0.25 * np.ones_like(E_MeV)
 
-        Egrid = np.arange(1.0, 19.0, step=1.0)
         mu_inverse_ns = [
             0.45918122858399824,
             0.6557307634639333,
@@ -398,6 +397,7 @@ def inversegaussian_nIRF(
             1.9247350785402442,
             1.8572104736139436,
         ]
+        Egrid = 1.0 + np.arange(len(mu_inverse_ns))
 
         mu = np.interp(E_MeV, Egrid, mu_inverse_ns) * 1e9
         lamb = np.interp(E_MeV, Egrid, lamb_inverse_ns) * 1e9
