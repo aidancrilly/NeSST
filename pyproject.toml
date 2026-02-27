@@ -34,6 +34,12 @@ dependencies = [
 test = [
     "pre-commit","pytest", "jupyter", "matplotlib"
 ]
+docs = [
+    "sphinx>=7.0",
+    "sphinx-rtd-theme>=2.0",
+    "myst-parser>=2.0",
+    "nbsphinx>=0.9",
+]
 
 [tool.setuptools.package-data]
 "NeSST.data" = ["*.dat", "*.txt","*.csv","*.json"]
