@@ -7,6 +7,8 @@ Neutron Scattered Spectra Tool: A python tool for ICF neutron spectroscopy in th
 import NeSST as nst
 ```
 
+Documentation at https://nesst.readthedocs.io/en/latest/
+
 A quick overview is given in the [Jupyter notebook guide](https://nbviewer.org/github/aidancrilly/NeSST/blob/master/example/NeSST%20Guide.ipynb)
 
 ## Package Description
