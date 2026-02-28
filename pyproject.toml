@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "NeSST"
-version = "1.1.0"
+version = "1.1.2"
 description = "Neutron Scattered Spectra Tool, ICF primary and scattered neutron spectroscopy analysis code"
 readme = "README.md"
 classifiers = [
@@ -32,7 +32,13 @@ dependencies = [
 
 [project.optional-dependencies]
 test = [
-    "pytest", "jupyter", "matplotlib"
+    "pre-commit","pytest", "jupyter", "matplotlib"
+]
+docs = [
+    "sphinx>=7.0",
+    "sphinx-rtd-theme>=2.0",
+    "myst-parser>=2.0",
+    "nbsphinx>=0.9",
 ]
 dress = [
     "pydress"
