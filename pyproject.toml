@@ -34,6 +34,9 @@ dependencies = [
 test = [
     "pytest", "jupyter", "matplotlib"
 ]
+dress = [
+    "pydress"
+]
 
 [tool.setuptools.package-data]
 "NeSST.data" = ["*.dat", "*.txt","*.csv","*.json"]
