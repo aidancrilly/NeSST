@@ -1,18 +1,19 @@
-import numpy as np
 import numpy.typing as npt
 
 try:
     import dress
+
     dress_available = True
 except ImportError:
     dress_available = False
 
+
 def _check_dress():
     if not dress_available:
-        raise ImportError("pydress is required for DRESS interface functions. "
-                          "Install it with: pip install pydress")
+        raise ImportError("pydress is required for DRESS interface functions. Install it with: pip install pydress")
 
-def DRESS_DT_spec(T_D : float, T_T : float, n_samples : int, bins : npt.NDArray) -> npt.NDArray:
+
+def DRESS_DT_spec(T_D: float, T_T: float, n_samples: int, bins: npt.NDArray) -> npt.NDArray:
     """Computes DT primary neutron spectrum using DRESS with separate D and T temperatures.
 
     Args:
@@ -45,7 +46,8 @@ def DRESS_DT_spec(T_D : float, T_T : float, n_samples : int, bins : npt.NDArray)
 
     return spec / bins_w
 
-def DRESS_DT_spec_single_T(T : float, n_samples : int, bins : npt.NDArray) -> npt.NDArray:
+
+def DRESS_DT_spec_single_T(T: float, n_samples: int, bins: npt.NDArray) -> npt.NDArray:
     """Computes DT primary neutron spectrum using DRESS with a single ion temperature.
 
     Wrapper around DRESS_DT_spec for the case where D and T share the same temperature.
@@ -60,7 +62,8 @@ def DRESS_DT_spec_single_T(T : float, n_samples : int, bins : npt.NDArray) -> np
     """
     return DRESS_DT_spec(T, T, n_samples, bins)
 
-def DRESS_DD_spec(T : float, n_samples : int, bins : npt.NDArray) -> npt.NDArray:
+
+def DRESS_DD_spec(T: float, n_samples: int, bins: npt.NDArray) -> npt.NDArray:
     """Computes DD primary neutron spectrum using DRESS.
 
     Args:

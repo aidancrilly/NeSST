@@ -1,17 +1,16 @@
-import pytest
 import numpy as np
+import pytest
 
 pytest.importorskip("dress", reason="pydress is required for DRESS tests")
 
 import NeSST as nst
-
 
 # Number of Monte Carlo samples used in tests - large enough for accurate
 # statistics but small enough to keep test runtime reasonable.
 _N_SAMPLES = int(1e5)
 
 # Tolerance for relative comparison of mean energy against Ballabio (%)
-_MEAN_RTOL = 0.01   # 1 %
+_MEAN_RTOL = 0.01  # 1 %
 # Tolerance for relative comparison of standard deviation against Ballabio (%)
 _STDDEV_RTOL = 0.05  # 5 %
 
@@ -55,15 +54,15 @@ def test_QDress_DT_stddev_matches_Ballabio():
 def test_QDress_DT_separate_temperatures():
     """Using different D and T temperatures should produce a different spectrum
     from a single-temperature run."""
-    Tion = 5e3   # 5 keV in eV
-    T_D  = 5e3
-    T_T  = 10e3  # tritons hotter than deuterons
+    Tion = 5e3  # 5 keV in eV
+    T_D = 5e3
+    T_T = 10e3  # tritons hotter than deuterons
 
     mean_ball, stddev_ball, _ = nst.DTprimspecmoments(Tion)
     Ein = np.linspace(mean_ball - 10 * stddev_ball, mean_ball + 10 * stddev_ball, 500)
 
     spec_single = nst.QDress_DT(Ein, Tion, n_samples=_N_SAMPLES)
-    spec_diff   = nst.QDress_DT(Ein, T_D, T_T, n_samples=_N_SAMPLES)
+    spec_diff = nst.QDress_DT(Ein, T_D, T_T, n_samples=_N_SAMPLES)
 
     # The spectra should not be identical when temperatures differ
     assert not np.allclose(spec_single, spec_diff)

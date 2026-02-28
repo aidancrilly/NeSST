@@ -98,7 +98,8 @@ def QBallabio(Ein: npt.NDArray, mean: float, variance: float) -> npt.NDArray:
     spec = np.exp(-2.0 * Ebar * (np.sqrt(Ein) - np.sqrt(Ebar)) ** 2 / sig2) / norm
     return spec
 
-def QDress_DT(Ein : npt.NDArray, T_D : float, T_T : float = None, n_samples : int = int(1e6)) -> npt.NDArray:
+
+def QDress_DT(Ein: npt.NDArray, T_D: float, T_T: float | None = None, n_samples: int = int(1e6)) -> npt.NDArray:
     """Calculates the DT primary neutron spectrum using the DRESS Monte Carlo code.
 
     Args:
@@ -111,11 +112,13 @@ def QDress_DT(Ein : npt.NDArray, T_D : float, T_T : float = None, n_samples : in
         numpy.array: normalised DT spectrum (1/eV) evaluated at the bin centres of Ein
     """
     from NeSST.dress_interface import DRESS_DT_spec
+
     if T_T is None:
         T_T = T_D
     return DRESS_DT_spec(T_D, T_T, n_samples, Ein)
 
-def QDress_DD(Ein : npt.NDArray, Tion : float, n_samples : int = int(1e6)) -> npt.NDArray:
+
+def QDress_DD(Ein: npt.NDArray, Tion: float, n_samples: int = int(1e6)) -> npt.NDArray:
     """Calculates the DD primary neutron spectrum using the DRESS Monte Carlo code.
 
     Args:
@@ -127,7 +130,9 @@ def QDress_DD(Ein : npt.NDArray, Tion : float, n_samples : int = int(1e6)) -> np
         numpy.array: normalised DD spectrum (1/eV) evaluated at the bin centres of Ein
     """
     from NeSST.dress_interface import DRESS_DD_spec
+
     return DRESS_DD_spec(Tion, n_samples, Ein)
+
 
 # TT spectral shape
 def dNdE_TT(E: npt.NDArray, Tion: float) -> npt.NDArray:
