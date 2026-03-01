@@ -40,6 +40,9 @@ docs = [
     "myst-parser>=2.0",
     "nbsphinx>=0.9",
 ]
+dress = [
+    "pydress"
+]
 
 [tool.setuptools.package-data]
 "NeSST.data" = ["*.dat", "*.txt","*.csv","*.json"]
