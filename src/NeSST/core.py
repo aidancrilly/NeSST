@@ -53,9 +53,6 @@ def initialise_material_data(label):
     available_materials.append(label)
 
 
-for mat in default_mat_list:
-    initialise_material_data(mat)
-
 ##########################################
 # Primary spectral shapes & reactivities #
 ##########################################
