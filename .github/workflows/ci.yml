@@ -25,7 +25,7 @@ jobs:
 
       - name: install package with testing dependencies
         run: |
-          pip install .[test]
+          pip install .[test,dress]
           pytest
 
       - name: run examples

@@ -40,7 +40,7 @@ pip install -e .
 ```
 
 ## Current model specifications:
-- Primary spectrum models for DT, DD and TT
+- Primary spectrum models for DT, DD and TT, including wrapper for Monte Carlo code [pyDRESS](https://github.com/jacob-eri/pydress)
 - Elastic and inelastic (n,2n) processes for D and T
 - ENDF file interface using [ENDF-python](https://github.com/paulromano/endf-python)
 - Relativistic corrections to elastic scattering kernels
