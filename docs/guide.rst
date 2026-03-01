@@ -51,6 +51,15 @@ Two shapes are available for the primary spectrum:
    # Ballabio (modified Gaussian) shape
    I_E = nst.QBallabio(Ein, mean, variance)
 
+Additionally, the DRESS Monte Carlo code can be used to generate primary spectra without assuming a particular shape:
+
+.. code-block:: python
+
+   Ein = np.linspace(10e6, 18e6, 200)  # energy array in eV
+
+   # DRESS DT primary spectrum, bin centres provided by Ein
+   I_E = nst.QDRESS_DT(Ein, Tion, n_samples = int(1e6))
+
 Yields and Reactivities
 ~~~~~~~~~~~~~~~~~~~~~~~
 
