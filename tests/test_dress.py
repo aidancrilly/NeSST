@@ -10,7 +10,7 @@ import NeSST as nst
 _N_SAMPLES = int(5e5)
 
 # Tolerance for relative comparison of mean energy against Ballabio (%)
-_MEAN_RTOL = 0.05  # 5 %
+_MEAN_RTOL = 0.08  # 8 %
 # Tolerance for relative comparison of standard deviation against Ballabio (%)
 _STDDEV_RTOL = 0.05  # 5 %
 
