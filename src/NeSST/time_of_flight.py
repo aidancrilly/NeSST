@@ -202,159 +202,119 @@ def combine_detector_sensitivities(model_list):
     return total_sensitivity
 
 
-def get_transit_time_tophat_IRF(scintillator_thickness):
-    def transit_time_tophat_IRF(t_detected, En):
-        vn = Ekin_2_beta(En, Mn) * c
-        t_transit = scintillator_thickness / vn
+def top_hat(scint_thickness):
+    """
+    Return a function  R_base(t_detected, En)  that creates the
+    normalised top-hat transit matrix for *this* scintillator thickness.
+    """
+
+    def _top_hat_matrix(t_detected, t_transit):
+        """NxN top-hat response, normalised row-wise."""
         tt_d, tt_a = np.meshgrid(t_detected, t_detected, indexing="ij")
         _, tt_t = np.meshgrid(t_detected, t_transit, indexing="ij")
-        R = np.eye(t_detected.shape[0]) + np.heaviside(tt_d - tt_a, 0.0) - np.heaviside(tt_d - (tt_a + tt_t), 1.0)
-        R_norm = np.sum(R, axis=1)
-        # Catch the zeros
-        R_norm[R_norm == 0] = 1
-        R /= R_norm[:, None]
-        return R
 
-    return transit_time_tophat_IRF
+        R = np.eye(t_detected.size) + np.heaviside(tt_d - tt_a, 0.0) - np.heaviside(tt_d - (tt_a + tt_t), 1.0)
+
+        row_sum = R.sum(axis=1, keepdims=True)
+        row_sum[row_sum == 0] = 1  # avoid div-by-zero
+        return R / row_sum
+
+    def base(t_detected, En):
+        vn = Ekin_2_beta(En, Mn) * c
+        t_transit = scint_thickness / vn
+        return _top_hat_matrix(t_detected, t_transit)
+
+    return base
 
 
-def get_transit_time_tophat_w_decayingGaussian_IRF(scintillator_thickness, gaussian_FWHM, decay_time, sig_shift=2.0):
-    """
+def decaying_gaussian_kernel(FWHM, tau, shift_sigma=2.0):
+    """Single exponential tail multiplied by Gaussian."""
+    sig = FWHM / 2.355
+    shift_t = shift_sigma * sig
 
-    See: https://pubs.aip.org/aip/rsi/article/68/1/610/1070804/Interpretation-of-neutron-time-of-flight-signals
-
-    """
-    sig = gaussian_FWHM / 2.355
-    shift_t = sig_shift * sig
-
-    def filter(t):
+    def kernel(t):
         t_shift = t - shift_t
-        erf_arg = (t_shift - sig**2 / decay_time) / np.sqrt(2 * sig**2)
-        gauss = (
-            np.exp(-t_shift / decay_time) * np.exp(0.5 * sig**2 / decay_time**2) / (2 * decay_time) * (1 + erf(erf_arg))
-        )
-        gauss[t < 0] = 0.0
-        return gauss
+        erf_arg = (t_shift - sig**2 / tau) / np.sqrt(2 * sig**2)
+        g = np.exp(-t_shift / tau) * np.exp(0.5 * sig**2 / tau**2)
+        g *= (1 + erf(erf_arg)) / (2 * tau)
+        g[t < 0] = 0
+        return g / np.trapezoid(g, x=t)
 
-    _tophat_IRF = get_transit_time_tophat_IRF(scintillator_thickness)
-
-    def transit_time_tophat_w_decayingGaussian_IRF(t_detected, En):
-        R = _tophat_IRF(t_detected, En)
-        t_filter = t_detected - 0.5 * (t_detected[-1] + t_detected[0])
-        filt = filter(t_filter)
-        R = np.apply_along_axis(lambda m: np.convolve(m, filt, mode="same"), axis=0, arr=R)
-        R_norm = np.sum(R, axis=1)
-        # Catch the zeros
-        R_norm[R_norm == 0] = 1
-        R /= R_norm[:, None]
-        return R
-
-    return transit_time_tophat_w_decayingGaussian_IRF
+    return kernel
 
 
-def get_transit_time_tophat_w_gateddecayingGaussian_IRF(scintillator_thickness, sig, decay_time, shift_t, sig_turnon):
-    """
+def double_decay_gaussian_kernel(FWHM, taus, frac, shift_sigma=2.0):
+    """Weighted sum of two decaying-Gaussian components."""
+    k1 = decaying_gaussian_kernel(FWHM, taus[0], shift_sigma)
+    k2 = decaying_gaussian_kernel(FWHM, taus[1], shift_sigma)
 
-    See: https://pubs.aip.org/aip/rsi/article/68/1/610/1070804/Interpretation-of-neutron-time-of-flight-signals
+    def kernel(t):
+        out = frac * k1(t) + (1 - frac) * k2(t)
+        return out / np.trapezoid(out, x=t)
 
-    """
+    return kernel
+
+
+def gated_decaying_gaussian_kernel(sig, tau, shift_t, sig_turnon):
+    """Exponentially decaying Gaussian with logistic gate."""
 
     def gate(x):
-        g = 2.0 / (1.0 + np.exp(-x)) - 1.0
-        g[x < 0.0] = 0.0
+        g = np.where(x > 0, 2 / (1 + np.exp(-x)) - 1, 0)
         return g
 
-    def filter(t):
+    def kernel(t):
         t_shift = t - shift_t
-        erf_arg = (t_shift - sig**2 / decay_time) / np.sqrt(2 * sig**2)
-        gauss = (
-            np.exp(-t_shift / decay_time) * np.exp(0.5 * sig**2 / decay_time**2) / (2 * decay_time) * (1 + erf(erf_arg))
-        )
-        gauss *= gate(t / sig_turnon)
-        return gauss / np.trapezoid(gauss, x=t)
+        erf_arg = (t_shift - sig**2 / tau) / np.sqrt(2 * sig**2)
+        g = np.exp(-t_shift / tau) * np.exp(0.5 * sig**2 / tau**2)
+        g *= (1 + erf(erf_arg)) / (2 * tau)
+        g *= gate(t / sig_turnon)
+        return g / np.trapezoid(g, x=t)
 
-    _tophat_IRF = get_transit_time_tophat_IRF(scintillator_thickness)
-
-    def transit_time_tophat_w_doubledecayingGaussian_IRF(t_detected, En):
-        R = _tophat_IRF(t_detected, En)
-        t_filter = t_detected - 0.5 * (t_detected[-1] + t_detected[0])
-        filt = filter(t_filter)
-        R = np.apply_along_axis(lambda m: np.convolve(m, filt, mode="same"), axis=0, arr=R)
-        R_norm = np.sum(R, axis=1)
-        # Catch the zeros
-        R_norm[R_norm == 0] = 1
-        R /= R_norm[:, None]
-        return R
-
-    return transit_time_tophat_w_doubledecayingGaussian_IRF
+    return kernel
 
 
-def get_transit_time_tophat_w_doubledecayingGaussian_IRF(
-    scintillator_thickness, gaussian_FWHM, decay_times, comp_1_frac, sig_shift=2.0
-):
+def t_gaussian_kernel(FWHM, peak_pos):
+    """t·Gaussian (often used for leading-edge shaping)."""
+    sig = FWHM / 2.355
+    mu = (peak_pos**2 - sig**2) / peak_pos
+
+    def kernel(t):
+        g = t * np.exp(-0.5 * ((t - mu) / sig) ** 2)
+        g[t < 0] = 0
+        return g / np.trapezoid(g, x=t)
+
+    return kernel
+
+
+def make_transit_time_IRF(thickness, kernel_fn, base_matrix_fn=None):
     """
-
-    See: https://pubs.aip.org/aip/rsi/article/68/1/610/1070804/Interpretation-of-neutron-time-of-flight-signals
-
+    Parameters
+    ----------
+    thickness : float
+        Sets the detector thickness
+    kernel_fn : callable(t) -> 1-D array
+        Builds the convolution kernel on the *same* time grid.
+    base_matrix_fn : callable(thickness) -> callable(t_detected, En) -> 2-D array  [optional]
+        Anything that returns an (N×N) response matrix *before* filtering.
+        If omitted, we fall back to the canonical top-hat.
     """
+    # Fallback to the usual top-hat if the caller doesn't supply one
+    if base_matrix_fn is None:
+        base_matrix_fn = top_hat(thickness)
+    else:
+        base_matrix_fn = base_matrix_fn(thickness)
 
-    sig = gaussian_FWHM / 2.355
-    shift_t = sig_shift * sig
+    def irf(t_detected, En):
+        Rbase = base_matrix_fn(t_detected, En)
+        kernel = kernel_fn(t_detected - 0.5 * (t_detected[-1] + t_detected[0]))
 
-    def single_decay_comp(t, decay_time):
-        t_shift = t - shift_t
-        erf_arg = (t_shift - sig**2 / decay_time) / np.sqrt(2 * sig**2)
-        gauss = (
-            np.exp(-t_shift / decay_time) * np.exp(0.5 * sig**2 / decay_time**2) / (2 * decay_time) * (1 + erf(erf_arg))
-        )
-        gauss *= 0.5 * (1 + erf(t / sig))
-        return gauss
+        Rconv = np.apply_along_axis(lambda m: np.convolve(m, kernel, mode="same"), axis=0, arr=Rbase)
 
-    def filter(t):
-        total = comp_1_frac * single_decay_comp(t, decay_times[0]) + (1 - comp_1_frac) * single_decay_comp(
-            t, decay_times[1]
-        )
-        return total / np.trapezoid(total, x=t)
+        row_sum = Rconv.sum(axis=1, keepdims=True)
+        row_sum[row_sum == 0] = 1
+        return Rconv / row_sum
 
-    _tophat_IRF = get_transit_time_tophat_IRF(scintillator_thickness)
-
-    def transit_time_tophat_w_doubledecayingGaussian_IRF(t_detected, En):
-        R = _tophat_IRF(t_detected, En)
-        t_filter = t_detected - 0.5 * (t_detected[-1] + t_detected[0])
-        filt = filter(t_filter)
-        R = np.apply_along_axis(lambda m: np.convolve(m, filt, mode="same"), axis=0, arr=R)
-        R_norm = np.sum(R, axis=1)
-        # Catch the zeros
-        R_norm[R_norm == 0] = 1
-        R /= R_norm[:, None]
-        return R
-
-    return transit_time_tophat_w_doubledecayingGaussian_IRF
-
-
-def get_transit_time_tophat_w_tGaussian_IRF(scintillator_thickness, gaussian_FWHM, tgaussian_peak_pos):
-    sig = gaussian_FWHM / 2.355
-    mu = (tgaussian_peak_pos**2 - sig**2) / tgaussian_peak_pos
-
-    def filter(t):
-        gauss = t * np.exp(-0.5 * ((t - mu) / sig) ** 2)
-        gauss[t < 0] = 0.0
-        return gauss
-
-    _tophat_IRF = get_transit_time_tophat_IRF(scintillator_thickness)
-
-    def transit_time_tophat_w_tGaussian_IRF(t_detected, En):
-        R = _tophat_IRF(t_detected, En)
-        t_filter = t_detected - 0.5 * (t_detected[-1] + t_detected[0])
-        filt = filter(t_filter)
-        R = np.apply_along_axis(lambda m: np.convolve(m, filt, mode="same"), axis=0, arr=R)
-        R_norm = np.sum(R, axis=1)
-        # Catch the zeros
-        R_norm[R_norm == 0] = 1
-        R /= R_norm[:, None]
-        return R
-
-    return transit_time_tophat_w_tGaussian_IRF
+    return irf
 
 
 class nToF:
