@@ -7,6 +7,8 @@ Neutron Scattered Spectra Tool: A python tool for ICF neutron spectroscopy in th
 import NeSST as nst
 ```
 
+Documentation at https://nesst.readthedocs.io/en/latest/
+
 A quick overview is given in the [Jupyter notebook guide](https://nbviewer.org/github/aidancrilly/NeSST/blob/master/example/NeSST%20Guide.ipynb)
 
 ## Package Description
@@ -38,7 +40,7 @@ pip install -e .
 ```
 
 ## Current model specifications:
-- Primary spectrum models for DT, DD and TT
+- Primary spectrum models for DT, DD and TT, including wrapper for Monte Carlo code [pyDRESS](https://github.com/jacob-eri/pydress)
 - Elastic and inelastic (n,2n) processes for D and T
 - ENDF file interface using [ENDF-python](https://github.com/paulromano/endf-python)
 - Relativistic corrections to elastic scattering kernels

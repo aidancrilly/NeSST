@@ -1,6 +1,7 @@
 import NeSST as nst
 import numpy as np
 import pytest
+from NeSST.constants import LazyMaterialDict
 
 
 def test_DTprimspecmoments_mean():
@@ -75,3 +76,25 @@ def test_DTprimspecmoments_variance_relative_size():
     assert np.isclose((100 / DTmean) * DTstddev, 1, atol=0.3)
     # Check variance is standard deviation squared
     assert np.isclose(DTvar, DTstddev**2)
+
+
+def test_mat_dict_is_lazy():
+    # mat_dict should be a LazyMaterialDict (not loaded eagerly at import)
+    assert isinstance(nst.mat_dict, LazyMaterialDict)
+
+
+def test_mat_dict_lazy_loads_on_access():
+    # mat_dict should lazily load material data on first access and then cache it
+    # Be9 is accessed last among default materials, so test with it
+    label = "Be9"
+    # Ensure the label is accessible (loads lazily if not already cached)
+    mat = nst.mat_dict[label]
+    assert label in nst.mat_dict
+    # Subsequent access returns the same cached object
+    assert mat is nst.mat_dict[label]
+
+
+def test_mat_dict_raises_for_unknown_label():
+    # Accessing an unknown material label should raise KeyError
+    with pytest.raises(KeyError):
+        nst.mat_dict["unknown_material_xyz"]

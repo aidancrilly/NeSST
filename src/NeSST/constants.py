@@ -34,4 +34,19 @@ ENDF_dir = os.path.join(data_dir, "./ENDF/")
 # Materials
 default_mat_list = ["H", "D", "T", "C12", "Be9"]
 available_materials = []
-mat_dict = {}
+
+
+class LazyMaterialDict(dict):
+    """A dict that lazily loads default material data on first access."""
+
+    def __missing__(self, label):
+        from NeSST.core import initialise_material_data  # lazy import avoids circular dependency
+
+        # initialise_material_data populates self[label] for valid labels
+        initialise_material_data(label)
+        if label not in self:
+            raise KeyError(label)
+        return self[label]
+
+
+mat_dict = LazyMaterialDict()

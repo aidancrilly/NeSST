@@ -53,9 +53,6 @@ def initialise_material_data(label):
     available_materials.append(label)
 
 
-for mat in default_mat_list:
-    initialise_material_data(mat)
-
 ##########################################
 # Primary spectral shapes & reactivities #
 ##########################################
@@ -97,6 +94,44 @@ def QBallabio(Ein: npt.NDArray, mean: float, variance: float) -> npt.NDArray:
     norm = np.sqrt(2 * np.pi * variance)
     spec = np.exp(-2.0 * Ebar * (np.sqrt(Ein) - np.sqrt(Ebar)) ** 2 / sig2) / norm
     return spec
+
+
+def QDress_DT(Ein: npt.NDArray, T_D: float, T_T: float | None = None, n_samples: int = int(1e6)) -> npt.NDArray:
+    """Calculates the DT primary neutron spectrum using the DRESS Monte Carlo code.
+
+    Args:
+        Ein (numpy.array): array of energy bin centres on which to compute the spectrum (eV)
+        T_D (float): temperature of deuterons in eV
+        T_T (float, optional): temperature of tritons in eV. If None, uses T_D for both.
+        n_samples (int): number of Monte Carlo samples (default 1e6)
+
+    Returns:
+        numpy.array: normalised DT spectrum (1/eV) evaluated at the bin centres of Ein
+    """
+    from NeSST.dress_interface import DRESS_DT_spec, Ecentres_to_edges
+
+    if T_T is None:
+        T_T = T_D
+
+    Ebins, _ = Ecentres_to_edges(Ein)
+    return DRESS_DT_spec(T_D, T_T, n_samples, Ebins)
+
+
+def QDress_DD(Ein: npt.NDArray, Tion: float, n_samples: int = int(1e6)) -> npt.NDArray:
+    """Calculates the DD primary neutron spectrum using the DRESS Monte Carlo code.
+
+    Args:
+        Ein (numpy.array): array of energy bin centres on which to compute the spectrum (eV)
+        Tion (float): temperature of the ions in eV
+        n_samples (int): number of Monte Carlo samples (default 1e6)
+
+    Returns:
+        numpy.array: normalised DD spectrum (1/eV) evaluated at the bin centres of Ein
+    """
+    from NeSST.dress_interface import DRESS_DD_spec, Ecentres_to_edges
+
+    Ebins, _ = Ecentres_to_edges(Ein)
+    return DRESS_DD_spec(Tion, n_samples, Ebins)
 
 
 # TT spectral shape
