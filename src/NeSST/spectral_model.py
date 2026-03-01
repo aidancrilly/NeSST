@@ -29,6 +29,8 @@ class material_data:
         self.label = label
 
         self.json = json
+        print(f">> NeSST: First usage of material {label}")
+        print(f">> NeSST: Loading cross section data for {label}, with config {json}...")
         ENDF_data = retrieve_ENDF_data(self.json)
 
         self.A = ENDF_data["A"]
