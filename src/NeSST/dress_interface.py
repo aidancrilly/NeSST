@@ -1,3 +1,4 @@
+import numpy as np
 import numpy.typing as npt
 
 try:
@@ -11,6 +12,23 @@ except ImportError:
 def _check_dress():
     if not dress_available:
         raise ImportError("pydress is required for DRESS interface functions. Install it with: pip install pydress")
+
+
+def Ecentres_to_edges(Ecentres: npt.NDArray) -> npt.NDArray:
+    """Convert energy bin centres to edges.
+
+    Args:
+        Ecentres (numpy.array): energy bin centres in eV
+
+    Returns:
+        numpy.array: energy bin edges in eV
+    """
+    dE = np.diff(Ecentres)
+    Eedges = np.empty(len(Ecentres) + 1)
+    Eedges[1:-1] = 0.5 * (Ecentres[:-1] + Ecentres[1:])
+    Eedges[0] = Ecentres[0] - 0.5 * dE[0]
+    Eedges[-1] = Ecentres[-1] + 0.5 * dE[-1]
+    return Eedges, Eedges[1:] - Eedges[:-1]
 
 
 def DRESS_DT_spec(T_D: float, T_T: float, n_samples: int, bins: npt.NDArray) -> npt.NDArray:

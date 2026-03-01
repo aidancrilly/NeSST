@@ -7,21 +7,20 @@ import NeSST as nst
 
 # Number of Monte Carlo samples used in tests - large enough for accurate
 # statistics but small enough to keep test runtime reasonable.
-_N_SAMPLES = int(1e5)
+_N_SAMPLES = int(5e5)
 
 # Tolerance for relative comparison of mean energy against Ballabio (%)
-_MEAN_RTOL = 0.01  # 1 %
+_MEAN_RTOL = 0.05  # 5 %
 # Tolerance for relative comparison of standard deviation against Ballabio (%)
 _STDDEV_RTOL = 0.05  # 5 %
 
 
 def _spectrum_moments(Ein, spec):
     """Return the mean and standard deviation of a normalised spectrum."""
-    Emid = 0.5 * (Ein[:-1] + Ein[1:])
-    dE = Ein[1:] - Ein[:-1]
+    _, dE = nst.Ecentres_to_edges(Ein)
     total = np.sum(spec * dE)
-    mean = np.sum(Emid * spec * dE) / total
-    stddev = np.sqrt(np.sum((Emid - mean) ** 2 * spec * dE) / total)
+    mean = np.sum(Ein * spec * dE) / total
+    stddev = np.sqrt(np.sum((Ein - mean) ** 2 * spec * dE) / total)
     return mean, stddev
 
 
@@ -35,7 +34,7 @@ def test_QDress_DT_mean_matches_Ballabio():
 
     mean_dress, _ = _spectrum_moments(Ein, spec)
 
-    assert mean_dress == pytest.approx(mean_ball, rel=_MEAN_RTOL)
+    assert mean_dress - nst.E0_DT == pytest.approx(mean_ball - nst.E0_DT, rel=_MEAN_RTOL)
 
 
 def test_QDress_DT_stddev_matches_Ballabio():
@@ -78,7 +77,7 @@ def test_QDress_DD_mean_matches_Ballabio():
 
     mean_dress, _ = _spectrum_moments(Ein, spec)
 
-    assert mean_dress == pytest.approx(mean_ball, rel=_MEAN_RTOL)
+    assert mean_dress - nst.E0_DD == pytest.approx(mean_ball - nst.E0_DD, rel=_MEAN_RTOL)
 
 
 def test_QDress_DD_stddev_matches_Ballabio():
