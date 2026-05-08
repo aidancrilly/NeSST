@@ -69,4 +69,4 @@ def test_inversegaussian_nIRF_normalisation():
 
     integral_signal = np.trapezoid(y=signal, x=normt_det)
 
-    assert np.isclose(integral_signal, 1.0, rtol=0.15)
+    assert np.isclose(integral_signal, 1.0, rtol=1e-2)

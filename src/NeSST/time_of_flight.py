@@ -231,7 +231,7 @@ def inversegaussian_nIRF(
     scint_thickness, ni_scin=8.79e28, CH_ratio=8 / 18, E_lower=0.05e6, E_upper=25.0e6, NE_interp=1000
 ):
     if scint_thickness != 10e-2 or ni_scin != 8.79e28:
-        raise NotImplementedError("Current inverse gaussian nIRF fit coefficients for 1e29 1/m^3 and 10cm only!")
+        raise NotImplementedError("Current inverse gaussian nIRF fit coefficients for 8.79e28 1/m^3 and 10cm only!")
 
     E_range = np.linspace(E_lower, E_upper, NE_interp)
     sig_H = mat_dict["H"].sigma_tot(E_range)
