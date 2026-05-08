@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 
 # Load in TT spectrum
-# Based on Appelbe, stationary emitter, temperature range between 1 and 10 keV
+# Based on Appelbe, stationary emitter, temperature range between 1 and 20 keV
 # https://www.sciencedirect.com/science/article/pii/S1574181816300295
 # N.B. requires some unit conversion to uniform eV
 TT_data = np.loadtxt(nst.sm.data_dir + "TT/TT_spec_temprange.txt")

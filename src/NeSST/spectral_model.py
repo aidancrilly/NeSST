@@ -359,12 +359,13 @@ class TT_spectrum_model:
             print(f"WARNING: TT spectrum model name ({model}) not recognised! Default to 0")
             return np.zeros_like(E)
 
-        Ep1, Ep2 = np.meshgrid(E, CoM_E, indexing="ij")
+        sqrt_Ep1 = np.sqrt(E)
+        sqrt_Ep2 = np.sqrt(CoM_E)
         dE = CoM_E[1] - CoM_E[0]
 
         # Following Appelbe HEDP 2016
         # https://www.sciencedirect.com/science/article/pii/S1574181816300295
-        int_factor = np.exp(-2 * Mt / Mn / Ti * (np.sqrt(Ep1) - np.sqrt(Ep2)) ** 2) / np.sqrt(Ep2) * dE
+        int_factor = np.exp(-2 * Mt / Mn / Ti * (sqrt_Ep1[:, None] - sqrt_Ep2[None, :]) ** 2) / sqrt_Ep2[None, :] * dE
         norm_factor = 0.5 * np.sqrt((2 * Mt / Mn / Ti) / np.pi)
 
         integrand = norm_factor * int_factor * CoM_spec[None, :]

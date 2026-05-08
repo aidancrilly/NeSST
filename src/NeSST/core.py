@@ -142,7 +142,7 @@ def dNdE_TT(E: npt.NDArray, Tion: float, model: str = "Brune") -> npt.NDArray:
     Args:
         E (numpy.array) : array of energy values on which to compute spectrum (eV)
         Tion (float) : the temperature of the ions in eV
-        model (str) : which TT spectral model to use, options are 'Brune', 'Gatu-Johnson' and 'Eriksson'
+        model (str) : which TT spectral model to use, options are in sm.TT_model.available_spectrum_models
 
     Returns:
         numpy.array : array with normalised TT spectral shape at energies E
