@@ -270,30 +270,88 @@ class material_data:
         interp = interpolate_1d(self.Eout, M_v, method="linear", bounds_error=False)
         return interp(E)
 
+class TT_spectrum_model:
 
-# Load in TT spectrum
-# Based on Appelbe, stationary emitter, temperature range between 1 and 10 keV
-# https://www.sciencedirect.com/science/article/pii/S1574181816300295
-# N.B. requires some unit conversion to uniform eV
-TT_data = np.loadtxt(data_dir + "TT_spec_temprange.txt")
-TT_spec_E = TT_data[:, 0] * 1e6  # MeV to eV
-TT_spec_T = np.linspace(1.0, 20.0, 40) * 1e3  # keV to eV
-TT_spec_dNdE = TT_data[:, 1:] / 1e6  # 1/MeV to 1/eV
-TT_2dinterp = interpolate_2d(TT_spec_E, TT_spec_T, TT_spec_dNdE, method="linear", bounds_error=False, fill_value=0.0)
+    def __init__(self, NE = 500):
+        # Create TT spectrum model grid
+        self.TT_spec_E = np.linspace(1e-10, 12e6, NE)  # eV
 
-# TT reactivity
-TT_reac_McNally_data = np.loadtxt(
-    data_dir + "TT_reac_McNally.dat"
-)  # sigmav im m^3/s   # From https://www.osti.gov/servlets/purl/5992170 - N.B. not in agreement with experimental measurements
-TT_reac_McNally_spline = interpolate_1d(
-    TT_reac_McNally_data[:, 0], TT_reac_McNally_data[:, 1], method="linear", bounds_error=False, fill_value=0.0
-)
-TT_reac_Hale_data = np.loadtxt(data_dir + "TT_reac_Hale.dat")  # T in MeV, sigmav im cm^3/s   # From Hale
-TT_reac_Hale_spline = interpolate_1d(
-    TT_reac_Hale_data[:, 0] * 1e3, TT_reac_Hale_data[:, 1] * 1e-6, method="linear", bounds_error=False, fill_value=0.0
-)
-# TT_reac_data = np.loadtxt(data_dir + "TT_reac_ENDF.dat")       # sigmav im m^3/s   # From ENDF
-# TT_reac_spline = interpolate_1d(TT_reac_data[:,0],TT_reac_data[:,1],method='linear',bounds_error=False,fill_value=0.0)
+        # Load TT spectra (CoM frame)
+        self.CoM_E_Brune, self.CoM_spec_Brune = self._load_and_normalise_CoM_spec(data_dir + "TT/BruneFit16_36keV.txt")
+        self.CoM_E_Eriksson, self.CoM_spec_Eriksson = self._load_and_normalise_CoM_spec(data_dir + "TT/Eriksson_45keV.txt")
+        self.CoM_E_GJ_low, self.CoM_spec_GJ_low = self._load_and_normalise_CoM_spec(data_dir + "TT/GatuJohnson_16keV.txt")
+        self.CoM_E_GJ_mid, self.CoM_spec_GJ_mid = self._load_and_normalise_CoM_spec(data_dir + "TT/GatuJohnson_36keV.txt")
+        self.CoM_E_GJ_high, self.CoM_spec_GJ_high = self._load_and_normalise_CoM_spec(data_dir + "TT/GatuJohnson_50keV.txt")
+
+        # Load TT reactivity
+        TT_reac_McNally_data = np.loadtxt(
+            data_dir + "TT/TT_reac_McNally.dat"
+        )  # sigmav im m^3/s   # From https://www.osti.gov/servlets/purl/5992170 - N.B. not in agreement with experimental measurements
+        self.TT_reac_McNally_spline = interpolate_1d(
+            TT_reac_McNally_data[:, 0], TT_reac_McNally_data[:, 1], method="linear", bounds_error=False, fill_value=0.0
+        )
+        TT_reac_Hale_data = np.loadtxt(data_dir + "TT/TT_reac_Hale.dat")  # T in MeV, sigmav im cm^3/s   # From Hale
+        self.TT_reac_Hale_spline = interpolate_1d(
+            TT_reac_Hale_data[:, 0] * 1e3, TT_reac_Hale_data[:, 1] * 1e-6, method="linear", bounds_error=False, fill_value=0.0
+        )
+        # TT_reac_data = np.loadtxt(data_dir + "TT_reac_ENDF.dat")       # sigmav im m^3/s   # From ENDF
+        # TT_reac_spline = interpolate_1d(TT_reac_data[:,0],TT_reac_data[:,1],method='linear',bounds_error=False,fill_value=0.0)
+
+    def _load_and_normalise_CoM_spec(self, filename):
+        E, spec = np.loadtxt(filename, unpack=True)
+        E = E * 1e6  # MeV to eV
+        # Shift 0
+        E[0] += 1e-10
+        # Interpolate to model energy grid
+        spec = np.interp(self.TT_spec_E, E, spec, left=0.0, right=0.0)
+        spec = spec / np.trapezoid(spec, self.TT_spec_E)  # Normalise to 1
+        return self.TT_spec_E, spec
+
+    def reac(self, Ti, model):
+        Ti_kev = Ti / 1e3
+        if model == "Hale":
+            return self.TT_reac_Hale_spline(Ti_kev)
+        elif model == "McNally":
+            return self.TT_reac_McNally_spline(Ti_kev)
+        elif model == "CaughlanFowler":
+            T9 = (Ti_kev * sc.e * 1e3 / sc.k) / 1e9
+            T9_1third = T9 ** (1.0 / 3.0)
+            poly = np.polyval([0.225, 0.148, -0.272, -0.455, 0.086, 1.0], T9_1third)
+            return (1 / sc.N_A) * 1.67e3 / T9 ** (2.0 / 3.0) * np.exp(-4.872 / T9 ** (1.0 / 3.0)) * poly
+        else:
+            print(f"WARNING: TT model name ({model}) not recognised! Default to 0")
+            return np.zeros_like(Ti)
+
+    def spec(self, E, Ti, model):
+        if model == "Brune":
+            CoM_E, CoM_spec = self.CoM_E_Brune, self.CoM_spec_Brune
+        elif model == 'Gatu-Johnson-low':
+            CoM_E, CoM_spec = self.CoM_E_GJ_low, self.CoM_spec_GJ_low
+        elif model == 'Gatu-Johnson-mid':
+            CoM_E, CoM_spec = self.CoM_E_GJ_mid, self.CoM_spec_GJ_mid
+        elif model == 'Gatu-Johnson-high':
+            CoM_E, CoM_spec = self.CoM_E_GJ_high, self.CoM_spec_GJ_high
+        elif model == "Eriksson":
+            CoM_E, CoM_spec = self.CoM_E_Eriksson, self.CoM_spec_Eriksson
+        else:
+            print(f"WARNING: TT spectrum model name ({model}) not recognised! Default to 0")
+            return np.zeros_like(E)
+        
+        Ep1, Ep2 = np.meshgrid(self.TT_spec_E,CoM_E,indexing='ij')
+        dE = CoM_E[1]-CoM_E[0]
+
+        # Following Appelbe HEDP 2016
+        # https://www.sciencedirect.com/science/article/pii/S1574181816300295
+        int_factor  = np.exp(-2*Mt/Mn/Ti*(np.sqrt(Ep1)-np.sqrt(Ep2))**2)/np.sqrt(Ep2)*dE
+        norm_factor = 0.5*np.sqrt((2*Mt/Mn/Ti)/np.pi)
+
+        integrand = norm_factor*int_factor*CoM_spec[None,:]
+
+        broadened_spec = np.sum(integrand,axis=1)
+
+        return broadened_spec
+
+TT_model = TT_spectrum_model()
 
 ########################
 # Primary reactivities #
@@ -351,16 +409,4 @@ def reac_DD(Ti, model="BoschHale"):
 
 
 def reac_TT(Ti, model="Hale"):
-    Ti_kev = Ti / 1e3
-    if model == "Hale":
-        return TT_reac_Hale_spline(Ti_kev)
-    elif model == "McNally":
-        return TT_reac_McNally_spline(Ti_kev)
-    elif model == "CaughlanFowler":
-        T9 = (Ti_kev * sc.e * 1e3 / sc.k) / 1e9
-        T9_1third = T9 ** (1.0 / 3.0)
-        poly = np.polyval([0.225, 0.148, -0.272, -0.455, 0.086, 1.0], T9_1third)
-        return (1 / sc.N_A) * 1.67e3 / T9 ** (2.0 / 3.0) * np.exp(-4.872 / T9 ** (1.0 / 3.0)) * poly
-    else:
-        print(f"WARNING: TT model name ({model}) not recognised! Default to 0")
-        return np.zeros_like(Ti)
+    return TT_model.reac(Ti, model=model)

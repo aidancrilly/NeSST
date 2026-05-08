@@ -135,19 +135,20 @@ def QDress_DD(Ein: npt.NDArray, Tion: float, n_samples: int = int(1e6)) -> npt.N
 
 
 # TT spectral shape
-def dNdE_TT(E: npt.NDArray, Tion: float) -> npt.NDArray:
+def dNdE_TT(E: npt.NDArray, Tion: float, model: str = 'Brune') -> npt.NDArray:
     """Calculates the TT primary spectrum with Doppler broadening effect as
     calculated in Appelbe et al. HEDP 2016
 
     Args:
         E (numpy.array) : array of energy values on which to compute spectrum (eV)
         Tion (float) : the temperature of the ions in eV
+        model (str) : which TT spectral model to use, options are 'Brune', 'Gatu-Johnson' and 'Eriksson'
 
     Returns:
         numpy.array : array with normalised TT spectral shape at energies E
 
     """
-    return sm.TT_2dinterp(E, Tion)
+    return sm.TT_model.spec(E, Tion, model=model)
 
 
 def yield_from_dt_yield_ratio(
