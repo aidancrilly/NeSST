@@ -49,3 +49,24 @@ def test_IRF_normalisation(kernel_fn):
     integral_signal = np.trapezoid(y=signal, x=normt_det)
 
     assert np.isclose(integral_signal, 1.0, rtol=1e-3)
+
+
+def test_inversegaussian_nIRF_normalisation():
+    """
+    For uniform sensitivity, the inversegaussian_nIRF response matrix rows should sum to 1
+    (i.e. the response is normalised).
+    """
+    nToF_distance = 20.0  # m
+    flat_sens = nst.time_of_flight.get_unity_sensitivity()
+    total_IRF = nst.time_of_flight.inversegaussian_nIRF(scint_thickness=10e-2)
+
+    E_ntof = np.linspace(1.0e6, 10.0e6, 500)
+    DDmean, _, DDvar = nst.DDprimspecmoments(Tion=5.0e3)
+    dNdE = nst.QBrysk(E_ntof, DDmean, DDvar)
+
+    test_20m_nToF = nst.time_of_flight.nToF(nToF_distance, flat_sens, total_IRF)
+    t_det, normt_det, signal = test_20m_nToF.get_signal(E_ntof, dNdE)
+
+    integral_signal = np.trapezoid(y=signal, x=normt_det)
+
+    assert np.isclose(integral_signal, 1.0, rtol=0.15)
