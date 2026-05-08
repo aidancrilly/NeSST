@@ -283,6 +283,8 @@ class TT_spectrum_model:
         self.CoM_E_GJ_mid, self.CoM_spec_GJ_mid = self._load_and_normalise_CoM_spec(data_dir + "TT/GatuJohnson_36keV.txt")
         self.CoM_E_GJ_high, self.CoM_spec_GJ_high = self._load_and_normalise_CoM_spec(data_dir + "TT/GatuJohnson_50keV.txt")
 
+        self.available_spectrum_models = ["Brune", "Eriksson", "Gatu-Johnson-low", "Gatu-Johnson-mid", "Gatu-Johnson-high"]
+
         # Load TT reactivity
         TT_reac_McNally_data = np.loadtxt(
             data_dir + "TT/TT_reac_McNally.dat"
@@ -296,6 +298,8 @@ class TT_spectrum_model:
         )
         # TT_reac_data = np.loadtxt(data_dir + "TT_reac_ENDF.dat")       # sigmav im m^3/s   # From ENDF
         # TT_reac_spline = interpolate_1d(TT_reac_data[:,0],TT_reac_data[:,1],method='linear',bounds_error=False,fill_value=0.0)
+
+        self.available_reactivity_models = ["Hale", "McNally", "CaughlanFowler"]
 
     def _load_and_normalise_CoM_spec(self, filename):
         E, spec = np.loadtxt(filename, unpack=True)
@@ -337,7 +341,7 @@ class TT_spectrum_model:
             print(f"WARNING: TT spectrum model name ({model}) not recognised! Default to 0")
             return np.zeros_like(E)
         
-        Ep1, Ep2 = np.meshgrid(self.TT_spec_E,CoM_E,indexing='ij')
+        Ep1, Ep2 = np.meshgrid(E, CoM_E, indexing='ij')
         dE = CoM_E[1]-CoM_E[0]
 
         # Following Appelbe HEDP 2016
