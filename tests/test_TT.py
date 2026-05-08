@@ -1,5 +1,5 @@
-import numpy as np
 import NeSST as nst
+import numpy as np
 import pytest
 
 # Load in TT spectrum
@@ -10,7 +10,10 @@ TT_data = np.loadtxt(nst.sm.data_dir + "TT/TT_spec_temprange.txt")
 TT_spec_E = TT_data[:, 0] * 1e6  # MeV to eV
 TT_spec_T = np.linspace(1.0, 20.0, 40) * 1e3  # keV to eV
 TT_spec_dNdE = TT_data[:, 1:] / 1e6  # 1/MeV to 1/eV
-TT_2dinterp = nst.sm.interpolate_2d(TT_spec_E, TT_spec_T, TT_spec_dNdE, method="linear", bounds_error=False, fill_value=0.0)
+TT_2dinterp = nst.sm.interpolate_2d(
+    TT_spec_E, TT_spec_T, TT_spec_dNdE, method="linear", bounds_error=False, fill_value=0.0
+)
+
 
 @pytest.mark.parametrize("Ti", TT_spec_T[1:])
 def test_TT_spectrum(Ti):

@@ -135,7 +135,7 @@ def QDress_DD(Ein: npt.NDArray, Tion: float, n_samples: int = int(1e6)) -> npt.N
 
 
 # TT spectral shape
-def dNdE_TT(E: npt.NDArray, Tion: float, model: str = 'Brune') -> npt.NDArray:
+def dNdE_TT(E: npt.NDArray, Tion: float, model: str = "Brune") -> npt.NDArray:
     """Calculates the TT primary spectrum with Doppler broadening effect as
     calculated in Appelbe et al. HEDP 2016
 

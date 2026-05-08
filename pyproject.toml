@@ -47,6 +47,7 @@ dress = [
 [tool.setuptools.package-data]
 "NeSST.data" = ["*.dat", "*.txt","*.csv","*.json"]
 "NeSST.data.ENDF" = ["*.endf", "*.cendl","*.brond"]
+"NeSST.data.TT" = ["*.dat", "*.txt"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

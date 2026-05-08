@@ -270,20 +270,34 @@ class material_data:
         interp = interpolate_1d(self.Eout, M_v, method="linear", bounds_error=False)
         return interp(E)
 
-class TT_spectrum_model:
 
-    def __init__(self, NE = 500):
+class TT_spectrum_model:
+    def __init__(self, NE=500):
         # Create TT spectrum model grid
         self.TT_spec_E = np.linspace(1e-10, 12e6, NE)  # eV
 
         # Load TT spectra (CoM frame)
         self.CoM_E_Brune, self.CoM_spec_Brune = self._load_and_normalise_CoM_spec(data_dir + "TT/BruneFit16_36keV.txt")
-        self.CoM_E_Eriksson, self.CoM_spec_Eriksson = self._load_and_normalise_CoM_spec(data_dir + "TT/Eriksson_45keV.txt")
-        self.CoM_E_GJ_low, self.CoM_spec_GJ_low = self._load_and_normalise_CoM_spec(data_dir + "TT/GatuJohnson_16keV.txt")
-        self.CoM_E_GJ_mid, self.CoM_spec_GJ_mid = self._load_and_normalise_CoM_spec(data_dir + "TT/GatuJohnson_36keV.txt")
-        self.CoM_E_GJ_high, self.CoM_spec_GJ_high = self._load_and_normalise_CoM_spec(data_dir + "TT/GatuJohnson_50keV.txt")
+        self.CoM_E_Eriksson, self.CoM_spec_Eriksson = self._load_and_normalise_CoM_spec(
+            data_dir + "TT/Eriksson_45keV.txt"
+        )
+        self.CoM_E_GJ_low, self.CoM_spec_GJ_low = self._load_and_normalise_CoM_spec(
+            data_dir + "TT/GatuJohnson_16keV.txt"
+        )
+        self.CoM_E_GJ_mid, self.CoM_spec_GJ_mid = self._load_and_normalise_CoM_spec(
+            data_dir + "TT/GatuJohnson_36keV.txt"
+        )
+        self.CoM_E_GJ_high, self.CoM_spec_GJ_high = self._load_and_normalise_CoM_spec(
+            data_dir + "TT/GatuJohnson_50keV.txt"
+        )
 
-        self.available_spectrum_models = ["Brune", "Eriksson", "Gatu-Johnson-low", "Gatu-Johnson-mid", "Gatu-Johnson-high"]
+        self.available_spectrum_models = [
+            "Brune",
+            "Eriksson",
+            "Gatu-Johnson-low",
+            "Gatu-Johnson-mid",
+            "Gatu-Johnson-high",
+        ]
 
         # Load TT reactivity
         TT_reac_McNally_data = np.loadtxt(
@@ -294,7 +308,11 @@ class TT_spectrum_model:
         )
         TT_reac_Hale_data = np.loadtxt(data_dir + "TT/TT_reac_Hale.dat")  # T in MeV, sigmav im cm^3/s   # From Hale
         self.TT_reac_Hale_spline = interpolate_1d(
-            TT_reac_Hale_data[:, 0] * 1e3, TT_reac_Hale_data[:, 1] * 1e-6, method="linear", bounds_error=False, fill_value=0.0
+            TT_reac_Hale_data[:, 0] * 1e3,
+            TT_reac_Hale_data[:, 1] * 1e-6,
+            method="linear",
+            bounds_error=False,
+            fill_value=0.0,
         )
         # TT_reac_data = np.loadtxt(data_dir + "TT_reac_ENDF.dat")       # sigmav im m^3/s   # From ENDF
         # TT_reac_spline = interpolate_1d(TT_reac_data[:,0],TT_reac_data[:,1],method='linear',bounds_error=False,fill_value=0.0)
@@ -329,31 +347,32 @@ class TT_spectrum_model:
     def spec(self, E, Ti, model):
         if model == "Brune":
             CoM_E, CoM_spec = self.CoM_E_Brune, self.CoM_spec_Brune
-        elif model == 'Gatu-Johnson-low':
+        elif model == "Gatu-Johnson-low":
             CoM_E, CoM_spec = self.CoM_E_GJ_low, self.CoM_spec_GJ_low
-        elif model == 'Gatu-Johnson-mid':
+        elif model == "Gatu-Johnson-mid":
             CoM_E, CoM_spec = self.CoM_E_GJ_mid, self.CoM_spec_GJ_mid
-        elif model == 'Gatu-Johnson-high':
+        elif model == "Gatu-Johnson-high":
             CoM_E, CoM_spec = self.CoM_E_GJ_high, self.CoM_spec_GJ_high
         elif model == "Eriksson":
             CoM_E, CoM_spec = self.CoM_E_Eriksson, self.CoM_spec_Eriksson
         else:
             print(f"WARNING: TT spectrum model name ({model}) not recognised! Default to 0")
             return np.zeros_like(E)
-        
-        Ep1, Ep2 = np.meshgrid(E, CoM_E, indexing='ij')
-        dE = CoM_E[1]-CoM_E[0]
+
+        Ep1, Ep2 = np.meshgrid(E, CoM_E, indexing="ij")
+        dE = CoM_E[1] - CoM_E[0]
 
         # Following Appelbe HEDP 2016
         # https://www.sciencedirect.com/science/article/pii/S1574181816300295
-        int_factor  = np.exp(-2*Mt/Mn/Ti*(np.sqrt(Ep1)-np.sqrt(Ep2))**2)/np.sqrt(Ep2)*dE
-        norm_factor = 0.5*np.sqrt((2*Mt/Mn/Ti)/np.pi)
+        int_factor = np.exp(-2 * Mt / Mn / Ti * (np.sqrt(Ep1) - np.sqrt(Ep2)) ** 2) / np.sqrt(Ep2) * dE
+        norm_factor = 0.5 * np.sqrt((2 * Mt / Mn / Ti) / np.pi)
 
-        integrand = norm_factor*int_factor*CoM_spec[None,:]
+        integrand = norm_factor * int_factor * CoM_spec[None, :]
 
-        broadened_spec = np.sum(integrand,axis=1)
+        broadened_spec = np.sum(integrand, axis=1)
 
         return broadened_spec
+
 
 TT_model = TT_spectrum_model()
 
