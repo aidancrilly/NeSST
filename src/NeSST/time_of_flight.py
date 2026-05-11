@@ -1,9 +1,9 @@
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import List
 
 import numpy as np
 from scipy.integrate import cumulative_trapezoid as cumtrapz
-from scipy.integrate import quad
 from scipy.special import erf
 
 from NeSST.collisions import *
@@ -56,16 +56,7 @@ def get_LOS_attenuation(LOS_materials: List[LOS_material]):
     return LOS_attenuation
 
 
-def get_power_law_NLO(p, Enorm=E0_DT):
-    A = mat_dict["H"].sigma(Enorm) * Enorm**p
-
-    def power_law_NLO(E):
-        return mat_dict["H"].sigma(E) * E**p / A
-
-    return power_law_NLO
-
-
-def get_Verbinski_NLO(Enorm=E0_DT):
+class ProtonScintillationModel(ABC):
     """
     Using equation (3) from
 
@@ -78,22 +69,51 @@ def get_Verbinski_NLO(Enorm=E0_DT):
     ISSN 0168-9002,
     https://doi.org/10.1016/j.nima.2024.169779.
     """
-    V_E, V_L = np.loadtxt(data_dir + "VerbinskiLproton.csv", delimiter=",", unpack=True)
-    cumulative_L = cumtrapz(y=np.insert(V_L, 0, 0.0), x=np.insert(V_E, 0, 0.0))
-    L_integral = interpolate_1d(np.insert(V_E, 0, 0.0) * 1e6, np.insert(cumulative_L, 0, 0.0), method="cubic")
 
-    def Verbinski_NLO(E):
-        return mat_dict["H"].sigma(E) * L_integral(E) / E
+    def __init__(self, Enorm):
+        self.Enorm = Enorm
+        self.normalisation = self._unnormalised(self.Enorm)
 
-    A = Verbinski_NLO(Enorm)
+    @abstractmethod
+    def L_integral(self, E):
+        pass
 
-    def norm_Verbinski_NLO(E):
-        return Verbinski_NLO(E) / A
+    def _unnormalised(self, E):
+        return mat_dict["H"].sigma(E) * self.L_integral(E) / E
 
-    return norm_Verbinski_NLO
+    def __call__(self, E):
+        return self._unnormalised(E) / self.normalisation
 
 
-def get_BirksBetheBloch_NLO(akB, Enorm=E0_DT):
+class PowerLawScintillationModel(ProtonScintillationModel):
+    def __init__(self, p, Enorm):
+        self.p = p
+        super().__init__(Enorm)
+
+    def L_integral(self, E):
+        return E ** (self.p + 1) / (self.p + 1)
+
+
+class VerbinskiNLOModel(ProtonScintillationModel):
+    """
+    Data from Verbinski, VVl, et al.
+    "Calibration of an organic scintillator for neutron spectrometry."
+    Nuclear Instruments and Methods 65.1 (1968): 8-25.
+    """
+
+    def __init__(self, Enorm):
+        V_E, V_L = np.loadtxt(data_dir + "VerbinskiLproton.csv", delimiter=",", unpack=True)
+        cumulative_L = cumtrapz(y=np.insert(V_L, 0, 0.0), x=np.insert(V_E, 0, 0.0))
+        self.L_integral_interp = interpolate_1d(
+            np.insert(V_E, 0, 0.0) * 1e6, np.insert(cumulative_L, 0, 0.0), method="cubic"
+        )
+        super().__init__(Enorm)
+
+    def L_integral(self, E):
+        return self.L_integral_interp(E)
+
+
+class BirksBetheBlochNLOModel(ProtonScintillationModel):
     r"""
     akB in eV
 
@@ -105,32 +125,17 @@ def get_BirksBetheBloch_NLO(akB, Enorm=E0_DT):
 
     Birks relation for light response:
         dL/dx \propto (dEdx)/(1+kB (dE/dx))
-
-    Using equation (3), (7) from
-
-    Qi Tang, Zifeng Song, Pinyang Liu, Bo Yu, Jiamin Yang,
-    Calibration of the sensitivity of the bibenzyl-based scintillation detector to 1–5 MeV neutrons,
-    Nuclear Instruments and Methods in Physics Research Section A: Accelerators, Spectrometers, Detectors and Associated Equipment,
-    Volume 1068,
-    2024,
-    169779,
-    ISSN 0168-9002,
-    https://doi.org/10.1016/j.nima.2024.169779.
     """
 
-    def BirksBetheBloch_NLO(E):
-        L_integral = 0.5 * E**2 - akB * E - akB * (akB + E) * np.log(1.0 + E / akB)
-        return mat_dict["H"].sigma(E) * L_integral / E
+    def __init__(self, akB, Enorm):
+        self.akB = akB
+        super().__init__(Enorm)
 
-    A = BirksBetheBloch_NLO(Enorm)
-
-    def norm_BirksBetheBloch_NLO(E):
-        return BirksBetheBloch_NLO(E) / A
-
-    return norm_BirksBetheBloch_NLO
+    def L_integral(self, E):
+        return 0.5 * E**2 - self.akB * E - self.akB * (self.akB + E) * np.log(1.0 + E / self.akB)
 
 
-def get_BirksBethe_NLO(akB, excitation_energy, mp=sc.m_p, Enorm=E0_DT):
+class BirksBetheNLOModel(ProtonScintillationModel):
     r"""
     akB in eV
 
@@ -145,44 +150,81 @@ def get_BirksBethe_NLO(akB, excitation_energy, mp=sc.m_p, Enorm=E0_DT):
 
     Birks relation for light response:
         dL/dx \propto (dEdx)/(1+kB (dE/dx))
-
-    Using equation (3), (7) from
-
-    Qi Tang, Zifeng Song, Pinyang Liu, Bo Yu, Jiamin Yang,
-    Calibration of the sensitivity of the bibenzyl-based scintillation detector to 1–5 MeV neutrons,
-    Nuclear Instruments and Methods in Physics Research Section A: Accelerators, Spectrometers, Detectors and Associated Equipment,
-    Volume 1068,
-    2024,
-    169779,
-    ISSN 0168-9002,
-    https://doi.org/10.1016/j.nima.2024.169779.
     """
-    Istar = excitation_energy * mp / sc.m_e / 4.0
 
-    def kB_dEdx(Ep):
-        Ep_lim = max([Ep, np.e * Istar])
-        return akB / Ep_lim * np.log(Ep_lim / Istar)
+    def __init__(self, akB, excitation_energy, mp, Enorm, Emin, Emax, NE_interp):
+        self.akB = akB
+        self.excitation_energy = excitation_energy
+        self.mp = mp
 
-    def dLdE(Ep):
-        return 1.0 / (1.0 + kB_dEdx(Ep))
+        self.Istar = excitation_energy * mp / sc.m_e / 4.0
 
-    def L(Ep):
-        return quad(dLdE, 0.0, Ep)[0]
+        # Precompute tables for the integral and L(E) to speed up the interpolation
+        E_grid = np.linspace(Emin, Emax, NE_interp)
+        dLdE_grid = self.dLdE(E_grid)
+        L_grid = cumtrapz(y=dLdE_grid, x=E_grid, initial=0.0)
+        self.L_interp = interpolate_1d(E_grid, L_grid, method="cubic")
+        L_integral_grid = cumtrapz(y=L_grid, x=E_grid, initial=0.0)
+        self.L_integral_interp = interpolate_1d(E_grid, L_integral_grid, method="cubic")
+        super().__init__(Enorm)
 
-    def L_integral_scalar(En):
-        return quad(L, 0.0, En)[0]
+    def kB_dEdx(self, Ep):
+        Ep_lim = np.maximum(Ep, np.e * self.Istar)
+        return self.akB / Ep_lim * np.log(Ep_lim / self.Istar)
 
-    L_integral = np.vectorize(L_integral_scalar)
+    def dLdE(self, Ep):
+        return 1.0 / (1.0 + self.kB_dEdx(Ep))
 
-    def BirksBethe_NLO(E):
-        return mat_dict["H"].sigma(E) * L_integral(E) / E
+    def L(self, E):
+        return self.L_interp(E)
 
-    A = BirksBethe_NLO(Enorm)
+    def L_integral(self, E):
+        return self.L_integral_interp(E)
 
-    def norm_BirksBethe_NLO(E):
-        return BirksBethe_NLO(E) / A
 
-    return norm_BirksBethe_NLO, kB_dEdx, L
+class CraunSmithBetheModel(BirksBetheNLOModel):
+    r"""
+    Craun, R. L., and D. L. Smith.
+    "Analysis of response data for several organic scintillators."
+    Nuclear Instruments and Methods 80.2 (1970): 239-244.
+
+    We use:
+
+    dLdE \propto 1 / (1 + kB * dE/dx + C (kb * dE/dx)**2)
+
+    where dE/dx is given by the Bethe formula.
+
+    Note that this is a slight redefinition of C compared with the original paper,
+    which is more convenient for our purposes (dimensionless).
+
+    """
+
+    def __init__(self, C, akB, excitation_energy, mp, Enorm, Emin, Emax, NE_interp):
+        self.C = C
+        super().__init__(akB, excitation_energy, mp, Enorm, Emin, Emax, NE_interp)
+
+    def dLdE(self, Ep):
+        return 1.0 / (1.0 + self.kB_dEdx(Ep) + self.C * (self.kB_dEdx(Ep) ** 2))
+
+
+# Getters for common scintillation models, for ease of use in nToF class
+get_power_law_NLO = lambda p, Enorm=E0_DT: PowerLawScintillationModel(p, Enorm)
+
+get_Verbinski_NLO = lambda Enorm=E0_DT: VerbinskiNLOModel(Enorm)
+
+get_BirksBetheBloch_NLO = lambda akB, Enorm=E0_DT: BirksBetheBlochNLOModel(akB, Enorm)
+
+get_BirksBethe_NLO = (
+    lambda akB, excitation_energy, mp=sc.m_p, Enorm=E0_DT, Emin=1e3, Emax=20e6, NE_interp=1000: BirksBetheNLOModel(
+        akB, excitation_energy, mp, Enorm, Emin, Emax, NE_interp
+    )
+)
+
+get_CraunSmithBethe_NLO = (
+    lambda C, akB, excitation_energy, mp=sc.m_p, Enorm=E0_DT, Emin=1e3, Emax=20e6, NE_interp=1000: CraunSmithBetheModel(
+        C, akB, excitation_energy, mp, Enorm, Emin, Emax, NE_interp
+    )
+)
 
 
 def get_unity_sensitivity():
@@ -384,6 +426,10 @@ def t_gaussian_kernel(FWHM, peak_pos):
         return g / np.trapezoid(g, x=t)
 
     return kernel
+
+
+def delta_kernel():
+    return lambda t: np.array([1.0])
 
 
 def make_transit_time_IRF(thickness, kernel_fn, base_matrix_fn=None):

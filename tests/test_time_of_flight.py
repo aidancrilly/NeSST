@@ -14,7 +14,7 @@ import pytest_cases
 )
 def kernel_fn(request):
     if request.param == "delta":
-        kernel = lambda t: np.array([1.0])
+        kernel = nst.time_of_flight.delta_kernel()
     elif request.param == "decaying_gaussian":
         kernel = nst.time_of_flight.decaying_gaussian_kernel(FWHM=2.5e-9, tau=2e-9)
     elif request.param == "gated_decaying_gaussian_kernel":
@@ -70,3 +70,37 @@ def test_inversegaussian_nIRF_normalisation():
     integral_signal = np.trapezoid(y=signal, x=normt_det)
 
     assert np.isclose(integral_signal, 1.0, rtol=1e-2)
+
+
+@pytest_cases.fixture(
+    params=[
+        "get_power_law_NLO",
+        "get_Verbinski_NLO",
+        "get_BirksBetheBloch_NLO",
+        "get_BirksBethe_NLO",
+        "get_CraunSmithBethe_NLO",
+    ]
+)
+def NLO_fn(request):
+    if request.param == "get_power_law_NLO":
+        NLO = nst.time_of_flight.get_power_law_NLO(p=1.5)
+    elif request.param == "get_Verbinski_NLO":
+        NLO = nst.time_of_flight.get_Verbinski_NLO()
+    elif request.param == "get_BirksBetheBloch_NLO":
+        NLO = nst.time_of_flight.get_BirksBetheBloch_NLO(akB=1e6)
+    elif request.param == "get_BirksBethe_NLO":
+        NLO = nst.time_of_flight.get_BirksBethe_NLO(akB=1e6, excitation_energy=1e2)
+    elif request.param == "get_CraunSmithBethe_NLO":
+        NLO = nst.time_of_flight.get_CraunSmithBethe_NLO(C=0.1, akB=1e6, excitation_energy=1e2)
+
+    return NLO
+
+
+def test_NLO_monotonic(NLO_fn):
+    """
+    Test that the NLO functions are monotonic increasing
+    """
+    E = np.linspace(1e3, 20e6, 500)  # eV
+    S = NLO_fn(E)
+
+    assert np.all(np.diff(S) > 0)
