@@ -519,13 +519,15 @@ class nToF:
 
     def get_signal(self, En, dNdE):
         dNdt = self.get_dNdt(En, dNdE)
+        time_norm = self.distance / c
 
-        return self.detector_time, self.detector_normtime, np.matmul(self.R, self.sens * dNdt)
+        return self.detector_time, self.detector_normtime, np.matmul(self.R, self.sens * dNdt) / time_norm
 
     def get_signal_no_IRF(self, En, dNdE):
         dNdt = self.get_dNdt(En, dNdE)
+        time_norm = self.distance / c
 
-        return self.detector_time, self.detector_normtime, dNdt
+        return self.detector_time, self.detector_normtime, dNdt / time_norm
 
     # ------------------------------------------------------------------
     # Time-resolved (emission-time-dependent) methods
@@ -662,7 +664,8 @@ class nToF:
         dNdt2d = self.get_time_resolved_dNdt(En, d2NdEdt)  # (N_td, N_temit)
         RS = np.matmul(self.R, self.sens[:, None] * dNdt2d)  # (N_td, N_temit)
         signal = self._apply_emission_time_shift(RS, temit)
-        return self.detector_time, self.detector_normtime, signal
+        time_norm = self.distance / c
+        return self.detector_time, self.detector_normtime, signal / time_norm
 
     def get_time_resolved_signal_no_IRF(self, En, d2NdEdt, temit):
         """Time-resolved forward model without IRF application.
@@ -688,4 +691,5 @@ class nToF:
         dNdt2d = self.get_time_resolved_dNdt(En, d2NdEdt)  # (N_td, N_temit)
         RS = self.sens[:, None] * dNdt2d  # (N_td, N_temit)
         signal = self._apply_emission_time_shift(RS, temit)
-        return self.detector_time, self.detector_normtime, signal
+        time_norm = self.distance / c
+        return self.detector_time, self.detector_normtime, signal / time_norm

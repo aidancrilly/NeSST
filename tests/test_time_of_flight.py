@@ -45,9 +45,9 @@ def test_IRF_normalisation(kernel_fn):
     dNdE = nst.QBrysk(E_ntof, DDmean, DDvar)
 
     test_20m_nToF = nst.time_of_flight.nToF(nToF_distance, flat_sens, total_IRF)
-    t_det, normt_det, signal = test_20m_nToF.get_signal(E_ntof, dNdE)
+    t_det, _, signal = test_20m_nToF.get_signal(E_ntof, dNdE)
 
-    integral_signal = np.trapezoid(y=signal, x=normt_det)
+    integral_signal = np.trapezoid(y=signal, x=t_det)
 
     assert np.isclose(integral_signal, 1.0, rtol=1e-3)
 
@@ -66,9 +66,9 @@ def test_inversegaussian_nIRF_normalisation():
     dNdE = nst.QBrysk(E_ntof, DDmean, DDvar)
 
     test_20m_nToF = nst.time_of_flight.nToF(nToF_distance, flat_sens, total_IRF)
-    t_det, normt_det, signal = test_20m_nToF.get_signal(E_ntof, dNdE)
+    t_det, _, signal = test_20m_nToF.get_signal(E_ntof, dNdE)
 
-    integral_signal = np.trapezoid(y=signal, x=normt_det)
+    integral_signal = np.trapezoid(y=signal, x=t_det)
 
     assert np.isclose(integral_signal, 1.0, rtol=1e-2)
 
