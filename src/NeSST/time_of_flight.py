@@ -613,9 +613,22 @@ class nToF:
         -------
         signal : ndarray, shape (N_td,)
         """
-        td = self.detector_time  # (N_td,)  uniform by construction
+        td = np.asarray(self.detector_time)
+        if td.ndim != 1 or td.size < 2:
+            raise ValueError(
+                "detector_time must be a one-dimensional array with at least "
+                "two points for time-resolved emission shifting."
+            )
+
+        td_spacing = np.diff(td)
+        if not np.allclose(td_spacing, td_spacing[0], rtol=1e-12, atol=0.0):
+            raise ValueError(
+                "detector_time must be uniformly spaced for "
+                "_apply_emission_time_shift."
+            )
+
         N_td = len(td)
-        dt_td = td[1] - td[0]  # uniform detector time bin width (s)
+        dt_td = td_spacing[0]  # uniform detector time bin width (s)
 
         # Trapezoidal bin widths for integration over t_emit
         dt_emit = np.gradient(temit)  # (N_temit,)
