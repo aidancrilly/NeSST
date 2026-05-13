@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import List
+from warnings import warn
 
 import numpy as np
 from scipy.integrate import cumulative_trapezoid as cumtrapz
@@ -163,6 +164,10 @@ class BirksBetheNLOModel(ProtonScintillationModel):
         # Precompute tables for the integral and L(E) to speed up the interpolation
         E_grid = np.linspace(Emin, Emax, NE_interp)
         dLdE_grid = self.dLdE(E_grid)
+        # Assume dLdE linear from 0 to Emin
+        E_grid = np.insert(E_grid, 0, 0.0)
+        dLdE_grid = np.insert(dLdE_grid, 0, 0.0)
+        # Compute integrals and interpolate
         L_grid = cumtrapz(y=dLdE_grid, x=E_grid, initial=0.0)
         self.L_interp = interpolate_1d(E_grid, L_grid, method="cubic")
         L_integral_grid = cumtrapz(y=L_grid, x=E_grid, initial=0.0)
@@ -274,7 +279,9 @@ def inversegaussian_nIRF(
     scint_thickness, ni_scin=8.79e28, CH_ratio=8 / 18, E_lower=0.05e6, E_upper=25.0e6, NE_interp=1000
 ):
     if scint_thickness != 10e-2 or ni_scin != 8.79e28:
-        raise NotImplementedError("Current inverse gaussian nIRF fit coefficients for 8.79e28 1/m^3 and 10cm only!")
+        warn(
+            "Current inverse gaussian nIRF fit coefficients calibrated for 8.79e28 1/m^3 and 10cm only!", RuntimeWarning
+        )
 
     E_range = np.linspace(E_lower, E_upper, NE_interp)
     sig_H = mat_dict["H"].sigma_tot(E_range)
