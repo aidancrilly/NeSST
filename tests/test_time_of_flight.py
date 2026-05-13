@@ -106,15 +106,16 @@ def test_NLO_monotonic(NLO_fn):
 
     assert np.all(np.diff(S) > 0)
 
+
 N_MC = 1_000_000
 _MC_SEED = 42
 
 
 def _mc_arrival_times(distance, Earr, d2NdEdt, tarr, rng):
     # Joint probability mass on the grid (not normalised yet)
-    dE = np.gradient(Earr)           # (N_E,)
-    dt = np.gradient(tarr)           # (N_temit,)
-    mass2d = d2NdEdt * dE[:, None] * dt[None, :]   # (N_E, N_temit)
+    dE = np.gradient(Earr)  # (N_E,)
+    dt = np.gradient(tarr)  # (N_temit,)
+    mass2d = d2NdEdt * dE[:, None] * dt[None, :]  # (N_E, N_temit)
     mass2d = np.maximum(mass2d, 0.0)
     total = mass2d.sum()
     flat_prob = mass2d.ravel() / total
@@ -136,8 +137,8 @@ def _mc_arrival_times(distance, Earr, d2NdEdt, tarr, rng):
 
 @pytest.mark.parametrize("distance", [0.5, 5.0, 20.0])
 def test_time_resolved_no_IRF_vs_MC(distance):
-    Tion = 5.0e3   # eV
-    BW   = 1.0e-9  # s  (burn-width FWHM)
+    Tion = 5.0e3  # eV
+    BW = 1.0e-9  # s  (burn-width FWHM)
     sigma_bw = BW / 2.355
 
     def burn_history(t):
@@ -156,16 +157,13 @@ def test_time_resolved_no_IRF_vs_MC(distance):
     # time-resolved signal: arrival of slowest neutron + last emission.
     # ---------------------------------------------------------------
     flat_sens = nst.time_of_flight.get_unity_sensitivity()
-    delta_irf  = nst.time_of_flight.make_transit_time_IRF(
+    delta_irf = nst.time_of_flight.make_transit_time_IRF(
         thickness=0.0,
         kernel_fn=lambda t: np.array([1.0]),
     )
     # slowest neutron normtime (at Earr[0]) plus emission window padded
     normtime_lo = nst.col.Ekin_2_beta(Earr[-1], nst.Mn) ** -1 * 0.95
-    normtime_hi = (
-        nst.col.Ekin_2_beta(Earr[0], nst.Mn) ** -1
-        + tarr[-1] * nst.c / distance
-    ) * 1.05
+    normtime_hi = (nst.col.Ekin_2_beta(Earr[0], nst.Mn) ** -1 + tarr[-1] * nst.c / distance) * 1.05
 
     det = nst.time_of_flight.nToF(
         distance,
@@ -194,14 +192,13 @@ def test_time_resolved_no_IRF_vs_MC(distance):
     # Normalise both to unit sum (comparison is shape only)
     # ---------------------------------------------------------------
     nesst_norm = nesst_signal / nesst_signal.sum()
-    mc_norm    = mc_hist / mc_hist.sum()
+    mc_norm = mc_hist / mc_hist.sum()
 
     # Tolerance: 5 * Poisson sigma at the peak MC bin
-    peak_frac   = mc_norm.max()
+    peak_frac = mc_norm.max()
     peak_counts = peak_frac * N_MC
-    atol = 5.0 * np.sqrt(peak_counts) / N_MC   # 5-sigma at the peak bin
+    atol = 5.0 * np.sqrt(peak_counts) / N_MC  # 5-sigma at the peak bin
 
     assert np.allclose(nesst_norm, mc_norm, atol=atol), (
-        f"distance={distance} m: max |NeSST - MC| = "
-        f"{np.abs(nesst_norm - mc_norm).max():.3e}  (tol={atol:.3e})"
+        f"distance={distance} m: max |NeSST - MC| = {np.abs(nesst_norm - mc_norm).max():.3e}  (tol={atol:.3e})"
     )
