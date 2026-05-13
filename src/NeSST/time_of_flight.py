@@ -552,13 +552,23 @@ class nToF:
         En = np.asarray(En)
         d2NdEdt = np.asarray(d2NdEdt)
 
+        if En.ndim != 1:
+            raise ValueError("En must be a 1D array of energy bin centres.")
+        if En.size < 2:
+            raise ValueError("En must contain at least two strictly increasing energy points.")
+        if not np.all(np.diff(En) > 0):
+            raise ValueError("En must be strictly increasing.")
+        if d2NdEdt.ndim != 2:
+            raise ValueError("d2NdEdt must be a 2D array with shape (len(En), N_temit).")
+        if d2NdEdt.shape[0] != En.size:
+            raise ValueError("d2NdEdt must have shape (len(En), N_temit).")
+
         # Vectorised linear interpolation of all N_temit columns at once.
         # Find the left-neighbour index for each En_det point in En.
         idx = np.searchsorted(En, self.En_det, side="right") - 1
         idx = np.clip(idx, 0, len(En) - 2)  # shape (N_td,)
 
         dE = En[idx + 1] - En[idx]
-        dE = np.where(dE > 0, dE, 1.0)  # guard against duplicate knots
         t_w = (self.En_det - En[idx]) / dE  # linear weight in [0,1]
         t_w = np.clip(t_w, 0.0, 1.0)
 
