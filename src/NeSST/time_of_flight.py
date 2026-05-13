@@ -1,9 +1,11 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import List
+from warnings import warn
 
 import numpy as np
 from scipy.integrate import cumulative_trapezoid as cumtrapz
+from scipy.ndimage import uniform_filter1d
 from scipy.special import erf
 
 from NeSST.collisions import *
@@ -162,6 +164,10 @@ class BirksBetheNLOModel(ProtonScintillationModel):
         # Precompute tables for the integral and L(E) to speed up the interpolation
         E_grid = np.linspace(Emin, Emax, NE_interp)
         dLdE_grid = self.dLdE(E_grid)
+        # Assume dLdE linear from 0 to Emin
+        E_grid = np.insert(E_grid, 0, 0.0)
+        dLdE_grid = np.insert(dLdE_grid, 0, 0.0)
+        # Compute integrals and interpolate
         L_grid = cumtrapz(y=dLdE_grid, x=E_grid, initial=0.0)
         self.L_interp = interpolate_1d(E_grid, L_grid, method="cubic")
         L_integral_grid = cumtrapz(y=L_grid, x=E_grid, initial=0.0)
@@ -273,7 +279,9 @@ def inversegaussian_nIRF(
     scint_thickness, ni_scin=8.79e28, CH_ratio=8 / 18, E_lower=0.05e6, E_upper=25.0e6, NE_interp=1000
 ):
     if scint_thickness != 10e-2 or ni_scin != 8.79e28:
-        raise NotImplementedError("Current inverse gaussian nIRF fit coefficients for 8.79e28 1/m^3 and 10cm only!")
+        warn(
+            "Current inverse gaussian nIRF fit coefficients calibrated for 8.79e28 1/m^3 and 10cm only!", RuntimeWarning
+        )
 
     E_range = np.linspace(E_lower, E_upper, NE_interp)
     sig_H = mat_dict["H"].sigma_tot(E_range)
@@ -463,6 +471,25 @@ def make_transit_time_IRF(thickness, kernel_fn, base_matrix_fn=None):
     return irf
 
 
+def _roll_zero(arr, n):
+    """Roll a 1-D array by ``n`` positions, filling vacated entries with zero.
+
+    Unlike ``np.roll``, this does not wrap around.  Positive ``n`` shifts
+    towards later times; negative ``n`` shifts towards earlier times.
+    Shifts larger than the array length return an all-zero array.
+    """
+    out = np.zeros_like(arr)
+    if n == 0:
+        out[:] = arr
+    elif n > 0:
+        if n < len(arr):
+            out[n:] = arr[:-n]
+    else:  # n < 0
+        if -n < len(arr):
+            out[:n] = arr[-n:]
+    return out
+
+
 class nToF:
     def __init__(
         self,
@@ -499,10 +526,211 @@ class nToF:
 
     def get_signal(self, En, dNdE):
         dNdt = self.get_dNdt(En, dNdE)
+        time_norm = self.distance / c
 
-        return self.detector_time, self.detector_normtime, np.matmul(self.R, self.sens * dNdt)
+        return self.detector_time, self.detector_normtime, np.matmul(self.R, self.sens * dNdt) / time_norm
 
     def get_signal_no_IRF(self, En, dNdE):
         dNdt = self.get_dNdt(En, dNdE)
+        time_norm = self.distance / c
 
-        return self.detector_time, self.detector_normtime, dNdt
+        return self.detector_time, self.detector_normtime, dNdt / time_norm
+
+    # ------------------------------------------------------------------
+    # Time-resolved (emission-time-dependent) methods
+    # ------------------------------------------------------------------
+
+    def get_time_resolved_dNdt(self, En, d2NdEdt):
+        """Interpolate d²N/dE dt_emit onto the detector energy grid and apply
+        the energy-to-normtime Jacobian.
+
+        Parameters
+        ----------
+        En : array_like, shape (N_E,)
+            Energy bin centres (eV).  Must be sorted ascending.
+        d2NdEdt : array_like, shape (N_E, N_temit)
+            Double-differential spectrum d²N/dE dt_emit  [1/eV/s].
+
+        Returns
+        -------
+        dNdt2d : ndarray, shape (N_td, N_temit)
+            d²N/dt_norm dt_emit on the detector normtime grid  [1/s/s].
+        """
+        En = np.asarray(En)
+        d2NdEdt = np.asarray(d2NdEdt)
+
+        if En.ndim != 1:
+            raise ValueError("En must be a 1D array of energy bin centres.")
+        if En.size < 2:
+            raise ValueError("En must contain at least two strictly increasing energy points.")
+        if not np.all(np.diff(En) > 0):
+            raise ValueError("En must be strictly increasing.")
+        if d2NdEdt.ndim != 2:
+            raise ValueError("d2NdEdt must be a 2D array with shape (len(En), N_temit).")
+        if d2NdEdt.shape[0] != En.size:
+            raise ValueError("d2NdEdt must have shape (len(En), N_temit).")
+
+        # Vectorised linear interpolation of all N_temit columns at once.
+        # Find the left-neighbour index for each En_det point in En.
+        idx = np.searchsorted(En, self.En_det, side="right") - 1
+        idx = np.clip(idx, 0, len(En) - 2)  # shape (N_td,)
+
+        dE = En[idx + 1] - En[idx]
+        t_w = (self.En_det - En[idx]) / dE  # linear weight in [0,1]
+        t_w = np.clip(t_w, 0.0, 1.0)
+
+        # Broadcast: (N_td,) x (N_temit,) -> (N_td, N_temit)
+        d2NdEdt_interp = (1.0 - t_w)[:, None] * d2NdEdt[idx, :] + t_w[:, None] * d2NdEdt[idx + 1, :]
+
+        # Zero out points outside the supplied energy range
+        out_of_range = (self.En_det < En[0]) | (self.En_det > En[-1])
+        d2NdEdt_interp[out_of_range, :] = 0.0
+
+        return d2NdEdt_interp * self.dEdt[:, None]  # (N_td, N_temit)
+
+    def _apply_emission_time_shift(self, RS, temit):
+        """Apply the emission-time shift W implicitly and integrate over
+        emission time.
+
+        Each emission-time bin k contributes to the output via three steps:
+
+        1. **Fractional shift** — column RS[:, k] is shifted by
+           ``t_emit[k] / dt_td`` bins using an integer zero-filling roll
+           plus sub-bin linear interpolation between the floor and ceil
+           rolls.  Zero-filling (not wrap-around) drops out-of-window
+           contributions silently.
+
+        2. **Top-hat spread** — the shifted column is convolved with a
+           normalised top-hat of width ``round(dt_emit[k] / dt_td)`` bins
+           via ``uniform_filter1d`` (sum-preserving, O(N_td) regardless of
+           spread width).  This correctly handles emission bins that span
+           many detector time bins.
+
+        3. **Integration weight** — multiply by ``dt_emit[k]`` (seconds) to
+           integrate d²N/dE dt_emit over the emission-time axis.
+
+        Parameters
+        ----------
+        RS : ndarray, shape (N_td, N_temit)
+            Signal matrix after (optional) IRF application.
+        temit : ndarray, shape (N_temit,)
+            Emission time bin centres (s).
+
+        Returns
+        -------
+        signal : ndarray, shape (N_td,)
+        """
+        td = np.asarray(self.detector_time)
+        if td.ndim != 1 or td.size < 2:
+            raise ValueError(
+                "detector_time must be a one-dimensional array with at least "
+                "two points for time-resolved emission shifting."
+            )
+
+        td_spacing = np.diff(td)
+        if not np.allclose(td_spacing, td_spacing[0], rtol=1e-8, atol=0.0):
+            raise ValueError("detector_time must be uniformly spaced for _apply_emission_time_shift.")
+
+        N_td = len(td)
+        dt_td = td_spacing[0]  # uniform detector time bin width (s)
+
+        # Trapezoidal bin widths for integration over t_emit
+        dt_emit = np.gradient(temit)  # (N_temit,)
+
+        signal = np.zeros(N_td)
+
+        for k in range(len(temit)):
+            col = RS[:, k]
+
+            # ----------------------------------------------------------
+            # Step 1: fractional shift
+            # Decompose t_emit[k]/dt_td into integer + sub-bin fraction.
+            # ----------------------------------------------------------
+            shift_bins = temit[k] / dt_td
+            n_lo = int(np.floor(shift_bins))
+            f = shift_bins - n_lo  # sub-bin fraction in [0, 1)
+
+            shifted = (1.0 - f) * _roll_zero(col, n_lo) + f * _roll_zero(col, n_lo + 1)
+
+            # ----------------------------------------------------------
+            # Step 2: top-hat spread over dt_emit[k]
+            # uniform_filter1d is sum-preserving and handles any width.
+            # ----------------------------------------------------------
+            n_spread = max(1, round(dt_emit[k] / dt_td))
+            spread = uniform_filter1d(shifted, size=n_spread, mode="constant", cval=0.0)
+
+            # ----------------------------------------------------------
+            # Step 3: integrate over emission time
+            # ----------------------------------------------------------
+            signal += spread * dt_emit[k]
+
+        return signal
+
+    def get_time_resolved_signal(self, En, d2NdEdt, temit):
+        """Full time-resolved forward model: interpolation → sensitivity →
+        IRF → emission-time shift.
+
+        Parameters
+        ----------
+        En : array_like, shape (N_E,)
+            Energy bin centres (eV).  Must be sorted ascending.
+        d2NdEdt : array_like, shape (N_E, N_temit)
+            d²N/dE dt_emit  [1/eV/s].
+        temit : array_like, shape (N_temit,)
+            Emission time bin centres (s). Must be > 0 and sorted ascending.
+
+        Returns
+        -------
+        detector_time : ndarray, shape (N_td,)
+        detector_normtime : ndarray, shape (N_td,)
+        signal : ndarray, shape (N_td,)
+        """
+        temit = np.asarray(temit)
+        if temit.ndim != 1 or temit.size < 2:
+            raise ValueError(
+                "temit must be a one-dimensional array with at least two points for time-resolved signal calculation."
+            )
+        if not np.all(temit >= 0):
+            raise ValueError("temit must be non-negative.")
+        if not np.all(np.diff(temit) > 0):
+            raise ValueError("temit must be sorted in ascending order.")
+
+        dNdt2d = self.get_time_resolved_dNdt(En, d2NdEdt)  # (N_td, N_temit)
+        RS = np.matmul(self.R, self.sens[:, None] * dNdt2d)  # (N_td, N_temit)
+        signal = self._apply_emission_time_shift(RS, temit)
+        time_norm = self.distance / c
+        return self.detector_time, self.detector_normtime, signal / time_norm
+
+    def get_time_resolved_signal_no_IRF(self, En, d2NdEdt, temit):
+        """Time-resolved forward model without IRF application.
+
+        Parameters
+        ----------
+        En : array_like, shape (N_E,)
+            Energy bin centres (eV).  Must be sorted ascending.
+        d2NdEdt : array_like, shape (N_E, N_temit)
+            d²N/dE dt_emit  [1/eV/s].
+        temit : array_like, shape (N_temit,)
+            Emission time bin centres (s). Must be > 0 and sorted ascending.
+
+        Returns
+        -------
+        detector_time : ndarray, shape (N_td,)
+        detector_normtime : ndarray, shape (N_td,)
+        signal : ndarray, shape (N_td,)
+        """
+        temit = np.asarray(temit)
+        if temit.ndim != 1 or temit.size < 2:
+            raise ValueError(
+                "temit must be a one-dimensional array with at least two points for time-resolved signal calculation."
+            )
+        if not np.all(temit >= 0):
+            raise ValueError("temit must be non-negative.")
+        if not np.all(np.diff(temit) > 0):
+            raise ValueError("temit must be sorted in ascending order.")
+
+        dNdt2d = self.get_time_resolved_dNdt(En, d2NdEdt)  # (N_td, N_temit)
+        RS = self.sens[:, None] * dNdt2d  # (N_td, N_temit)
+        signal = self._apply_emission_time_shift(RS, temit)
+        time_norm = self.distance / c
+        return self.detector_time, self.detector_normtime, signal / time_norm
