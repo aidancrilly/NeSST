@@ -621,11 +621,8 @@ class nToF:
             )
 
         td_spacing = np.diff(td)
-        if not np.allclose(td_spacing, td_spacing[0], rtol=1e-12, atol=0.0):
-            raise ValueError(
-                "detector_time must be uniformly spaced for "
-                "_apply_emission_time_shift."
-            )
+        if not np.allclose(td_spacing, td_spacing[0], rtol=1e-8, atol=0.0):
+            raise ValueError("detector_time must be uniformly spaced for _apply_emission_time_shift.")
 
         N_td = len(td)
         dt_td = td_spacing[0]  # uniform detector time bin width (s)
@@ -682,8 +679,15 @@ class nToF:
         signal : ndarray, shape (N_td,)
         """
         temit = np.asarray(temit)
-        assert np.all(temit >= 0), "Emission time bins must be > 0"
-        assert np.all(np.diff(temit) > 0), "Emission time bins must be sorted ascending"
+        if temit.ndim != 1 or temit.size < 2:
+            raise ValueError(
+                "temit must be a one-dimensional array with at least two points for time-resolved signal calculation."
+            )
+        if not np.all(temit >= 0):
+            raise ValueError("temit must be non-negative.")
+        if not np.all(np.diff(temit) > 0):
+            raise ValueError("temit must be sorted in ascending order.")
+
         dNdt2d = self.get_time_resolved_dNdt(En, d2NdEdt)  # (N_td, N_temit)
         RS = np.matmul(self.R, self.sens[:, None] * dNdt2d)  # (N_td, N_temit)
         signal = self._apply_emission_time_shift(RS, temit)
@@ -709,8 +713,15 @@ class nToF:
         signal : ndarray, shape (N_td,)
         """
         temit = np.asarray(temit)
-        assert np.all(temit >= 0), "Emission time bins must be > 0"
-        assert np.all(np.diff(temit) > 0), "Emission time bins must be sorted ascending"
+        if temit.ndim != 1 or temit.size < 2:
+            raise ValueError(
+                "temit must be a one-dimensional array with at least two points for time-resolved signal calculation."
+            )
+        if not np.all(temit >= 0):
+            raise ValueError("temit must be non-negative.")
+        if not np.all(np.diff(temit) > 0):
+            raise ValueError("temit must be sorted in ascending order.")
+
         dNdt2d = self.get_time_resolved_dNdt(En, d2NdEdt)  # (N_td, N_temit)
         RS = self.sens[:, None] * dNdt2d  # (N_td, N_temit)
         signal = self._apply_emission_time_shift(RS, temit)
