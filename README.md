@@ -11,6 +11,8 @@ Documentation at https://nesst.readthedocs.io/en/latest/
 
 A quick overview is given in the [Jupyter notebook guide](https://nbviewer.org/github/aidancrilly/NeSST/blob/master/example/NeSST%20Guide.ipynb)
 
+A paper describing NeSST's capabilities can be found here: https://arxiv.org/abs/2605.20432
+
 ## Package Description
 NeSST is a tool for producing singly scattered neutron spectra from ICF implosions. Various models for primary neutron spectra are given but the main focus of the code is on the scattered components.
 Total and differential cross sections for elastic and inelastic processes are used to form a singly scattered spectrum - the effect of areal density asymmetries can be incorporated into the resultant spectra.
