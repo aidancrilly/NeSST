@@ -18,11 +18,14 @@ class DT_fit_function:
     This class doesn't represent the full set of spectrum models which can be produced by NeSST! Just a common few...
     """
 
+    _source_labels = ("DT", "DD", "TT")
+    _material_labels = ("D", "T")
+
     def __init__(self, E_DTspec, E_sspec, vion_arr=None):
         self.E_DTspec = E_DTspec
         self.E_sspec = E_sspec
         print("### Initialising data on energy grids... ###")
-        init_DT_scatter(E_sspec, E_DTspec)
+        init_DT_scatter(E_sspec, E_sspec)
         if vion_arr is not None:
             self.ion_kinematics = True
             self.vion_arr = vion_arr
@@ -44,33 +47,100 @@ class DT_fit_function:
         Y_DD = yield_from_dt_yield_ratio("dd", Y_DT, Tion)
         Y_TT = yield_from_dt_yield_ratio("tt", Y_DT, Tion)
 
-        self.dNdE_DT = Y_DT * QBrysk(self.E_DTspec, self.DTmean, self.DTvar)  # Brysk shape i.e. Gaussian
-        self.dNdE_DD = Y_DD * QBrysk(self.E_sspec, self.DDmean, self.DDvar)  # Brysk shape i.e. Gaussian
+        self.dNdE_DT = Y_DT * QBrysk(self.E_DTspec, self.DTmean, self.DTvar)
+        self.dNdE_DD = Y_DD * QBrysk(self.E_sspec, self.DDmean, self.DDvar)
         self.dNdE_TT = Y_TT * dNdE_TT(self.E_sspec, Tion)
 
         self.I_DT = interpolate_1d(self.E_DTspec, self.dNdE_DT, fill_value=0.0, bounds_error=False)
         self.I_DD = interpolate_1d(self.E_sspec, self.dNdE_DD)
         self.I_TT = interpolate_1d(self.E_sspec, self.dNdE_TT)
+        self._primary_scatter_spectra = {
+            "DT": self.I_DT(self.E_sspec),
+            "DD": self.dNdE_DD,
+            "TT": self.dNdE_TT,
+        }
 
-    def init_symmetric_model(self):
-        """
-        Creates a callable model function for a symmetric areal density distribution
-        """
+    def _primary_source_weights(self, fT, fD):
+        return {
+            "DT": 1.0,
+            "DD": (fD / fT) * (frac_T_default / frac_D_default),
+            "TT": (fT / fD) * (frac_D_default / frac_T_default),
+        }
 
+    def _primary_background(self, E, source_weights):
+        return source_weights["DD"] * self.I_DD(E) + source_weights["TT"] * self.I_TT(E)
+
+    def _double_scatter_grid(self, first_scatter, fT, fD):
+        double_scatter, _ = DT_sym_scatter_spec(first_scatter, frac_D=fD, frac_T=fT)
+        return double_scatter
+
+    def _scattered_signal(self, first_scatter, A_1S, fT, fD, include_double_scatter):
+        scattered = A_1S * first_scatter
+        if include_double_scatter:
+            scattered += A_1S**2 * self._double_scatter_grid(first_scatter, fT, fD)
+        return scattered
+
+    def _interpolate_scatter(self, spectrum, E):
+        interpolator = interpolate_1d(self.E_sspec, spectrum, fill_value=0.0, bounds_error=False)
+        return interpolator(E)
+
+    def _init_symmetric_responses(self):
         rhoL_func = lambda x: np.ones_like(x)
+        self._symmetric_static = {}
+        self._symmetric_ion = {}
 
-        if self.ion_kinematics:
-            calc_DT_ionkin_primspec_rhoL_integral(self.dNdE_DT, nT=True, nD=True)
-            mat_dict["D"].calc_n2n_dNdE(self.dNdE_DT, rhoL_func)
-            mat_dict["T"].calc_n2n_dNdE(self.dNdE_DT, rhoL_func)
-        else:
-            mat_dict["D"].calc_station_elastic_dNdE(self.dNdE_DT, rhoL_func)
-            mat_dict["T"].calc_station_elastic_dNdE(self.dNdE_DT, rhoL_func)
-            mat_dict["D"].calc_n2n_dNdE(self.dNdE_DT, rhoL_func)
-            mat_dict["T"].calc_n2n_dNdE(self.dNdE_DT, rhoL_func)
+        for source_label, primary_spectrum in self._primary_scatter_spectra.items():
+            self._symmetric_static[source_label] = {}
+            self._symmetric_ion[source_label] = {}
+            for material_label in self._material_labels:
+                material = mat_dict[material_label]
+                material.calc_station_elastic_dNdE(primary_spectrum, rhoL_func)
+                material.calc_n2n_dNdE(primary_spectrum, rhoL_func)
+                self._symmetric_static[source_label][material_label] = {
+                    "elastic": material.elastic_dNdE.copy(),
+                    "n2n": material.n2n_dNdE.copy(),
+                }
+                if self.ion_kinematics:
+                    material.scattering_matrix_apply_rhoLfunc(rhoL_func)
+                    material.matrix_primspec_int(primary_spectrum)
+                    self._symmetric_ion[source_label][material_label] = material.M_prim.copy()
 
-        dNdE_Dn2n = interpolate_1d(self.E_sspec, mat_dict["D"].n2n_dNdE, fill_value=0.0, bounds_error=False)
-        dNdE_Tn2n = interpolate_1d(self.E_sspec, mat_dict["T"].n2n_dNdE, fill_value=0.0, bounds_error=False)
+    def _symmetric_first_scatter_grid(self, source_weights, fT, fD, vbar=None, dv=None):
+        material_fractions = {"D": fD, "T": fT}
+        first_scatter = np.zeros_like(self.E_sspec)
+
+        for material_label, material_fraction in material_fractions.items():
+            n2n = sum(
+                source_weights[source_label] * self._symmetric_static[source_label][material_label]["n2n"]
+                for source_label in self._source_labels
+            )
+            if self.ion_kinematics:
+                material = mat_dict[material_label]
+                material.M_prim = sum(
+                    source_weights[source_label] * self._symmetric_ion[source_label][material_label]
+                    for source_label in self._source_labels
+                )
+                elastic = material.matrix_interpolate_gaussian(self.E_sspec, vbar, dv)
+            else:
+                elastic = sum(
+                    source_weights[source_label]
+                    * self._symmetric_static[source_label][material_label]["elastic"]
+                    for source_label in self._source_labels
+                )
+            first_scatter += material_fraction * (elastic + n2n)
+
+        return first_scatter
+
+    def init_symmetric_model(self, include_double_scatter=False):
+        """
+        Creates a callable model function for a symmetric areal density distribution.
+
+        The first-scatter source includes DT, DD and TT neutrons. The approximate
+        optional double-scatter term uses stationary-ion kernels and the symmetric
+        areal-density prescription from the NeSST paper.
+        """
+
+        self._init_symmetric_responses()
 
         if self.ion_kinematics:
 
@@ -79,121 +149,143 @@ class DT_fit_function:
                 Symmetric areal density model with scattering ion velocity distribution with mean and std dev, vbar and dv in m/s
                 """
                 A_1S = rhoR_2_A1s(rhoL, frac_D=fD, frac_T=fT)
-                dNdE_nT = mat_dict["T"].matrix_interpolate_gaussian(E, vbar, dv)
-                dNdE_nD = mat_dict["D"].matrix_interpolate_gaussian(E, vbar, dv)
-                dNdE_tot = A_1S * (fT * dNdE_nT + fD * dNdE_nD + fD * dNdE_Dn2n(E) + fT * dNdE_Tn2n(E))
-                return Yn * (
-                    dNdE_tot
-                    + (fD / fT) * (frac_T_default / frac_D_default) * self.I_DD(E)
-                    + (fT / fD) * (frac_D_default / frac_T_default) * self.I_TT(E)
+                source_weights = self._primary_source_weights(fT, fD)
+                first_scatter = self._symmetric_first_scatter_grid(source_weights, fT, fD, vbar, dv)
+                scattered = self._scattered_signal(
+                    first_scatter, A_1S, fT, fD, include_double_scatter
                 )
+                return Yn * (
+                    self._interpolate_scatter(scattered, E) + self._primary_background(E, source_weights)
+                )
+
         else:
-            """ Incomplete """
 
             def model(E, rhoL, Ts, fT, fD, Yn):
                 """
                 Symmetric areal density model with scattering temperature Ts, in keV
                 """
                 A_1S = rhoR_2_A1s(rhoL, frac_D=fD, frac_T=fT)
-                dNdE_nT = mat_dict["T"].elastic_dNdE.copy()
-                dNdE_nD = mat_dict["D"].elastic_dNdE.copy()
-                if Ts > 0.1:
-                    T_MeV = Ts / 1e3
-                    E_nT0 = ((sm.A_T - 1.0) / (sm.A_T + 1.0)) ** 2 * self.DTmean
-                    dE_nT = np.sqrt(8.0 * sm.A_T * E_nT0 / (sm.A_T + 1.0) ** 2 * T_MeV)  # noqa
-                    E_nD0 = ((sm.A_D - 1.0) / (sm.A_D + 1.0)) ** 2 * self.DTmean
-                    dE_nD = np.sqrt(8.0 * sm.A_D * E_nD0 / (sm.A_D + 1.0) ** 2 * T_MeV)  # noqa
-
-                dNdE_nT = interpolate_1d(self.E_sspec, dNdE_nT, fill_value=0.0, bounds_error=False)
-                dNdE_nD = interpolate_1d(self.E_sspec, dNdE_nD, fill_value=0.0, bounds_error=False)
-
-                dNdE_tot = A_1S * (fT * dNdE_nT(E) + fD * dNdE_nD(E) + fD * dNdE_Dn2n(E) + fT * dNdE_Tn2n(E))
+                source_weights = self._primary_source_weights(fT, fD)
+                first_scatter = self._symmetric_first_scatter_grid(source_weights, fT, fD)
+                scattered = self._scattered_signal(
+                    first_scatter, A_1S, fT, fD, include_double_scatter
+                )
                 return Yn * (
-                    dNdE_tot
-                    + (fD / fT) * (frac_T_default / frac_D_default) * self.I_DD(E)
-                    + (fT / fD) * (frac_D_default / frac_T_default) * self.I_TT(E)
+                    self._interpolate_scatter(scattered, E) + self._primary_background(E, source_weights)
                 )
 
         self.model = model
 
-    def init_modeone_model(self, P1_arr):
+    def _init_modeone_responses(self, P1_arr):
+        self._modeone_n2n = {}
+        self._modeone_static = {}
+        self._modeone_ion = {}
+
+        for source_label, primary_spectrum in self._primary_scatter_spectra.items():
+            self._modeone_n2n[source_label] = {}
+            self._modeone_static[source_label] = {}
+            self._modeone_ion[source_label] = {}
+            for material_label in self._material_labels:
+                material = mat_dict[material_label]
+                elastic_modeone = np.trapezoid(
+                    material.elastic_dNdEdmu[:, :, None]
+                    * (1.0 + P1_arr[None, None, :] * material.elastic_mu0[:, :, None])
+                    * primary_spectrum[None, :, None],
+                    self.E_sspec,
+                    axis=1,
+                )
+                self._modeone_static[source_label][material_label] = interpolate_2d(
+                    self.E_sspec, P1_arr, elastic_modeone, bounds_error=False
+                )
+                n2n_rgrid_IE = np.trapezoid(
+                    material.n2n_ddx.rgrid * primary_spectrum[:, None, None], self.E_sspec, axis=0
+                )
+                n2n_modeone = np.trapezoid(
+                    n2n_rgrid_IE[:, :, None]
+                    * (1.0 + P1_arr[None, None, :] * material.n2n_mu[:, None, None]),
+                    material.n2n_mu,
+                    axis=0,
+                )
+                self._modeone_n2n[source_label][material_label] = interpolate_2d(
+                    self.E_sspec, P1_arr, n2n_modeone, bounds_error=False
+                )
+
+                if self.ion_kinematics:
+                    M_modeone = np.trapezoid(
+                        (1.0 + P1_arr[None, None, None, :] * material.full_scattering_mu[:, :, :, None])
+                        * material.full_scattering_M[:, :, :, None]
+                        * primary_spectrum[None, None, :, None],
+                        self.E_sspec,
+                        axis=2,
+                    )
+                    self._modeone_ion[source_label][material_label] = interpolate_1d(
+                        P1_arr, M_modeone, axis=-1, bounds_error=False
+                    )
+
+    def _modeone_first_scatter_grid(self, source_weights, fT, fD, P1, vbar=None, dv=None):
+        material_fractions = {"D": fD, "T": fT}
+        first_scatter = np.zeros_like(self.E_sspec)
+
+        for material_label, material_fraction in material_fractions.items():
+            if self.ion_kinematics:
+                material = mat_dict[material_label]
+                material.M_prim = sum(
+                    source_weights[source_label] * self._modeone_ion[source_label][material_label](P1)
+                    for source_label in self._source_labels
+                )
+                elastic = material.matrix_interpolate_gaussian(self.E_sspec, vbar, dv)
+            else:
+                elastic = sum(
+                    source_weights[source_label]
+                    * self._modeone_static[source_label][material_label](self.E_sspec, P1)
+                    for source_label in self._source_labels
+                )
+            n2n = sum(
+                source_weights[source_label]
+                * self._modeone_n2n[source_label][material_label](self.E_sspec, P1)
+                for source_label in self._source_labels
+            )
+            first_scatter += material_fraction * (elastic + n2n)
+
+        return first_scatter
+
+    def init_modeone_model(self, P1_arr, include_double_scatter=False):
         """
-        Creates a callable model function for a mode 1 asymmetric areal density distribution
+        Creates a callable model function for a mode 1 asymmetric areal density distribution.
+
+        Double scattering is calculated by applying the symmetric stationary-ion
+        kernel to the mode-1 first-scatter signal.
         """
 
         self.P1_arr = P1_arr
-
-        # T(n,2n)
-        mat_dict["T"].n2n_ddx.rgrid_IE = np.trapezoid(
-            mat_dict["T"].n2n_ddx.rgrid * self.dNdE_DT[:, None, None], self.E_DTspec, axis=0
-        )
-        mat_dict["T"].n2n_dNdE_mode1 = np.trapezoid(
-            mat_dict["T"].n2n_ddx.rgrid_IE[:, :, None]
-            * (1.0 + self.P1_arr[None, None, :] * mat_dict["T"].n2n_mu[:, None, None]),
-            mat_dict["T"].n2n_mu,
-            axis=0,
-        )
-
-        mat_dict["T"].n2n_dNdE_mode1 = interpolate_2d(
-            self.E_sspec, self.P1_arr, mat_dict["T"].n2n_dNdE_mode1, bounds_error=False
-        )
-
-        # D(n,2n)
-        mat_dict["D"].n2n_ddx.rgrid_IE = np.trapezoid(
-            mat_dict["D"].n2n_ddx.rgrid * self.dNdE_DT[:, None, None], self.E_DTspec, axis=0
-        )
-        mat_dict["D"].n2n_dNdE_mode1 = np.trapezoid(
-            mat_dict["D"].n2n_ddx.rgrid_IE[:, :, None]
-            * (1.0 + self.P1_arr[None, None, :] * mat_dict["D"].n2n_mu[:, None, None]),
-            mat_dict["D"].n2n_mu,
-            axis=0,
-        )
-
-        mat_dict["D"].n2n_dNdE_mode1 = interpolate_2d(
-            self.E_sspec, self.P1_arr, mat_dict["D"].n2n_dNdE_mode1, bounds_error=False
-        )
-
-        # nT
-        M_mode1 = np.trapezoid(
-            (1.0 + self.P1_arr[None, None, None, :] * mat_dict["T"].full_scattering_mu[:, :, :, None])
-            * mat_dict["T"].full_scattering_M[:, :, :, None]
-            * self.dNdE_DT[None, None, :, None],
-            self.E_DTspec,
-            axis=2,
-        )
-
-        mat_dict["T"].M_mode1_interp = interpolate_1d(self.P1_arr, M_mode1, axis=-1, bounds_error=False)
-
-        # nD
-        M_mode1 = np.trapezoid(
-            (1.0 + self.P1_arr[None, None, None, :] * mat_dict["D"].full_scattering_mu[:, :, :, None])
-            * mat_dict["D"].full_scattering_M[:, :, :, None]
-            * self.dNdE_DT[None, None, :, None],
-            self.E_DTspec,
-            axis=2,
-        )
-
-        mat_dict["D"].M_mode1_interp = interpolate_1d(self.P1_arr, M_mode1, axis=-1, bounds_error=False)
+        self._init_modeone_responses(P1_arr)
 
         if self.ion_kinematics:
 
             def model(E, rhoL, P1, vbar, dv, fT, fD, Yn):
                 A_1S = rhoR_2_A1s(rhoL, frac_D=fD, frac_T=fT)
-                mat_dict["T"].M_prim = mat_dict["T"].M_mode1_interp(P1)
-                mat_dict["D"].M_prim = mat_dict["D"].M_mode1_interp(P1)
-                dNdE_nT = mat_dict["T"].matrix_interpolate_gaussian(E, vbar, dv)
-                dNdE_nD = mat_dict["D"].matrix_interpolate_gaussian(E, vbar, dv)
-                dNdE_Tn2n = mat_dict["T"].n2n_dNdE_mode1(E, P1)
-                dNdE_Dn2n = mat_dict["D"].n2n_dNdE_mode1(E, P1)
-                dNdE_tot = A_1S * (fT * dNdE_nT + fD * dNdE_nD + fD * dNdE_Dn2n + fT * dNdE_Tn2n)
-                # Primary
-                dNdE_DD = (fD / fT) * (frac_T_default / frac_D_default) * self.I_DD(E)
-                dNdE_TT = (fT / fD) * (frac_D_default / frac_T_default) * self.I_TT(E)
-                return Yn * (dNdE_tot + dNdE_DD + dNdE_TT)
-        else:
-            """ Incomplete """
+                source_weights = self._primary_source_weights(fT, fD)
+                first_scatter = self._modeone_first_scatter_grid(
+                    source_weights, fT, fD, P1, vbar, dv
+                )
+                scattered = self._scattered_signal(
+                    first_scatter, A_1S, fT, fD, include_double_scatter
+                )
+                return Yn * (
+                    self._interpolate_scatter(scattered, E) + self._primary_background(E, source_weights)
+                )
 
-            def model():
-                return None
+        else:
+
+            def model(E, rhoL, P1, Ts, fT, fD, Yn):
+                A_1S = rhoR_2_A1s(rhoL, frac_D=fD, frac_T=fT)
+                source_weights = self._primary_source_weights(fT, fD)
+                first_scatter = self._modeone_first_scatter_grid(source_weights, fT, fD, P1)
+                scattered = self._scattered_signal(
+                    first_scatter, A_1S, fT, fD, include_double_scatter
+                )
+                return Yn * (
+                    self._interpolate_scatter(scattered, E) + self._primary_background(E, source_weights)
+                )
 
         self.model = model
