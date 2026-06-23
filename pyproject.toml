@@ -32,7 +32,7 @@ dependencies = [
 
 [project.optional-dependencies]
 test = [
-    "pre-commit", "pytest", "pytest_cases", "jupyter", "matplotlib"
+    "pre-commit", "pytest<9.1.0", "pytest_cases", "jupyter", "matplotlib"
 ]
 docs = [
     "sphinx>=7.0",
