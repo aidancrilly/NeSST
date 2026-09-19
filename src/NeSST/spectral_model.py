@@ -47,11 +47,8 @@ class ElasticScatterKernel(eqx.Module):
 def affine_muc_band(muc_of_Eout, Eprobe):
     """Linearise the centre of mass cosine in Eout and invert it for mu_c = +-1
 
-    mu_c is affine in Eout at fixed incoming energy for the classical
-    kinematics, and affine to roundoff for the relativistic kinematics over the
-    energies NeSST is used at, so the linearisation is the function itself and
-    the Heaviside limits of an outgoing bin integral follow from inverting it.
-    test_spectral_model.py checks the linearity that rests on.
+    mu_c is affine in Eout at fixed incoming energy, so this transform gives the
+    Heaviside limits to integrate over the energy bins.
 
     Args:
         muc_of_Eout (callable): mu_c as a function of outgoing energy alone
@@ -68,11 +65,7 @@ def affine_muc_band(muc_of_Eout, Eprobe):
 
 
 class BinAveragedElasticScatterKernel(eqx.Module):
-    """Elastic scattering kernel bin averaged over the energy grids
-
-    The outgoing bin limits come from inverting the linearised mu_c, which for
-    stationary targets recovers E' in [E - 2/g(E), E].
-    """
+    """Elastic scattering kernel bin averaged over the energy grids"""
 
     A: float
     dxs: xs.DifferentialCrossSection
@@ -142,11 +135,7 @@ class InelasticScatterKernel(eqx.Module):
 
 
 class BinAveragedInelasticScatterKernel(eqx.Module):
-    """Inelastic scattering kernel bin averaged over the energy grids
-
-    The band recovers Eout in Ein*[(a-b)^2, (a+b)^2] where the channel is open,
-    and is empty below threshold.
-    """
+    """Inelastic scattering kernel bin averaged over the energy grids"""
 
     A: float
     Q: float
@@ -217,13 +206,9 @@ class IonKinematicScatterKernel(eqx.Module):
 class BinAveragedIonKinematicScatterKernel(eqx.Module):
     """Ion velocity elastic scattering kernel bin averaged over the energy grids
 
-    The band limits come from inverting the linearised mu_c as before, but the
-    jacobian carries the moving target flux correction, so it is no longer the
-    slope of mu_c and varies across the bin.
-
-    Memory grows as N^2 over the point sampled kernel, which is already the
-    largest array NeSST builds, so N = 1 is usually the useful setting: it
-    costs nothing extra and the band limits are exact at any N.
+    The jacobian carries the moving target flux correction, so it is no longer
+    the slope of mu_c and is kept explicit.  N = 1 is recommended here to avoid
+    a large memory cost.
     """
 
     A: float
@@ -381,6 +366,7 @@ class material_data:
             self.inelastic_legendre = []
             self.legendre_idx_spline = []
             self.inelastic_SDX_table = []
+            self.inelastic_dxs = []
             self.inelastic_kernel = []
 
             for i_inelastic in range(self.n_inelastic):
@@ -413,17 +399,18 @@ class material_data:
                     self.legendre_idx_spline.append(None)
                     self.inelastic_SDX_table.append(dxsec_table["SDX"])
 
+                self.inelastic_dxs.append(
+                    xs.DifferentialCrossSection(
+                        sigma=self.isigma[i_inelastic],
+                        legendre=tuple(self.legendre_idx_spline[i_inelastic])
+                        if self.inelastic_legendre[i_inelastic]
+                        else None,
+                        SDX=self.inelastic_SDX_table[i_inelastic],
+                    )
+                )
                 self.inelastic_kernel.append(
                     InelasticScatterKernel(
-                        A=self.A,
-                        Q=self.inelasticQ[i_inelastic],
-                        dxs=xs.DifferentialCrossSection(
-                            sigma=self.isigma[i_inelastic],
-                            legendre=tuple(self.legendre_idx_spline[i_inelastic])
-                            if self.inelastic_legendre[i_inelastic]
-                            else None,
-                            SDX=self.inelastic_SDX_table[i_inelastic],
-                        ),
+                        A=self.A, Q=self.inelasticQ[i_inelastic], dxs=self.inelastic_dxs[i_inelastic]
                     )
                 )
 
@@ -431,8 +418,9 @@ class material_data:
         self.Eout = None
         self.vvec = None
         self.bin_average = False
-        self.bin_average_N = 1
-        self.ionkin_bin_average = False
+        self.bin_average_kernel = None
+        self.bin_average_inelastic_kernel = []
+        self.bin_average_ion_kinematic_kernel = None
 
     ############################################
     # Stationary ion scattered spectral shapes #
@@ -444,7 +432,13 @@ class material_data:
 
     def init_station_scatter_matrices(self, Nm=100, bin_average=False, bin_average_N=1):
         self.bin_average = bin_average
-        self.bin_average_N = bin_average_N
+        if bin_average:
+            self.bin_average_kernel = BinAveragedElasticScatterKernel(A=self.A, dxs=self.elastic_dxs, N=bin_average_N)
+            if self.l_inelastic:
+                self.bin_average_inelastic_kernel = [
+                    BinAveragedInelasticScatterKernel(A=self.A, Q=Q, dxs=dxs, N=bin_average_N)
+                    for Q, dxs in zip(self.inelasticQ, self.inelastic_dxs, strict=True)
+                ]
         self.init_station_elastic_scatter()
         if self.l_n2n:
             self.init_n2n_ddxs(Nm)
@@ -453,10 +447,7 @@ class material_data:
 
     # Elastic scatter matrix
     def init_station_elastic_scatter(self):
-        if self.bin_average:
-            kernel = BinAveragedElasticScatterKernel(A=self.A, dxs=self.elastic_dxs, N=self.bin_average_N)
-        else:
-            kernel = self.elastic_kernel
+        kernel = self.bin_average_kernel if self.bin_average else self.elastic_kernel
         self.elastic_mu0, self.elastic_dNdEdmu = kernel(jnp.asarray(self.Ein), jnp.asarray(self.Eout))
 
     # Inelastic scatter matrix
@@ -466,12 +457,7 @@ class material_data:
         self.inelastic_dNdEdmu = []
         for i_inelastic in range(self.n_inelastic):
             if self.bin_average:
-                kernel = BinAveragedInelasticScatterKernel(
-                    A=self.A,
-                    Q=self.inelasticQ[i_inelastic],
-                    dxs=self.inelastic_kernel[i_inelastic].dxs,
-                    N=self.bin_average_N,
-                )
+                kernel = self.bin_average_inelastic_kernel[i_inelastic]
             else:
                 kernel = self.inelastic_kernel[i_inelastic]
             mu0, dNdEdmu = kernel(jnp.asarray(self.Ein), jnp.asarray(self.Eout))
@@ -492,20 +478,23 @@ class material_data:
     # Spectrum produced by scattering of incoming isotropic neutron source I_E with normalised areal density asymmetry rhoR_asym_func
     def calc_station_elastic_dNdE(self, I_E, rhoL_func):
         rhoL_asym = rhoL_func(self.elastic_mu0)
-        self.elastic_dNdE = self._dNdE_integral(self.elastic_dNdEdmu, rhoL_asym, I_E)
+        # A bin averaged matrix is contracted as a bin sum, not trapezoided
+        if self.bin_average:
+            _, dEin = energy_bin_edges(jnp.asarray(self.Ein))
+            self.elastic_dNdE = dNdE_bin_integral(self.elastic_dNdEdmu, rhoL_asym, I_E, dEin)
+        else:
+            self.elastic_dNdE = dNdE_integral(self.elastic_dNdEdmu, rhoL_asym, I_E, jnp.asarray(self.Ein))
 
     def calc_station_inelastic_dNdE(self, I_E, rhoL_func):
         self.inelastic_dNdE = jnp.zeros(self.Eout.shape[0])
+        _, dEin = energy_bin_edges(jnp.asarray(self.Ein))
         for i_inelastic in range(self.n_inelastic):
             rhoL_asym = rhoL_func(self.inelastic_mu0[i_inelastic])
-            self.inelastic_dNdE += self._dNdE_integral(self.inelastic_dNdEdmu[i_inelastic], rhoL_asym, I_E)
-
-    # A bin averaged matrix has to be contracted as a bin sum, not trapezoided
-    def _dNdE_integral(self, dNdEdmu, rhoL_asym, I_E):
-        if self.bin_average:
-            _, dEin = energy_bin_edges(jnp.asarray(self.Ein))
-            return dNdE_bin_integral(dNdEdmu, rhoL_asym, I_E, dEin)
-        return dNdE_integral(dNdEdmu, rhoL_asym, I_E, jnp.asarray(self.Ein))
+            dNdEdmu = self.inelastic_dNdEdmu[i_inelastic]
+            if self.bin_average:
+                self.inelastic_dNdE += dNdE_bin_integral(dNdEdmu, rhoL_asym, I_E, dEin)
+            else:
+                self.inelastic_dNdE += dNdE_integral(dNdEdmu, rhoL_asym, I_E, jnp.asarray(self.Ein))
 
     def calc_n2n_dNdE(self, I_E, rhoL_func):
         rhoL_asym = rhoL_func(self.n2n_mu)
@@ -536,12 +525,14 @@ class material_data:
     #####################################################
     # Inclusion of ion velocities to scattering kernels #
     #####################################################
-    def full_scattering_matrix_create(self, vvec, bin_average=False, bin_average_N=1):
+    def full_scattering_matrix_create(self, vvec, bin_average_N=1):
         self.vvec = vvec
-        self.ionkin_bin_average = bin_average
 
-        if bin_average:
-            kernel = BinAveragedIonKinematicScatterKernel(A=self.A, dxs=self.elastic_dxs, N=bin_average_N)
+        if self.bin_average:
+            self.bin_average_ion_kinematic_kernel = BinAveragedIonKinematicScatterKernel(
+                A=self.A, dxs=self.elastic_dxs, N=bin_average_N
+            )
+            kernel = self.bin_average_ion_kinematic_kernel
         else:
             kernel = self.ion_kinematic_kernel
         self.full_scattering_M, self.full_scattering_mu = kernel(
@@ -555,7 +546,7 @@ class material_data:
 
     # Integrate out the birth neutron spectrum
     def matrix_primspec_int(self, I_E):
-        if self.ionkin_bin_average:
+        if self.bin_average:
             _, dEin = energy_bin_edges(jnp.asarray(self.Ein))
             self.M_prim = primspec_bin_integral(self.rhoL_mult, self.full_scattering_M, I_E, dEin)
         else:

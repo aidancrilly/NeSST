@@ -63,12 +63,6 @@ def initialise_material_data(label):
 # Gaussian "Brysk"
 def QBrysk(Ein: npt.NDArray, mean: float, variance: float, bin_average: bool = False) -> npt.NDArray:
     """Calculates the primary spectrum with a Brysk shape i.e. Gaussian
-
-    A fusion primary is narrow enough that a coarse grid can miss most of its
-    area when the shape is sampled at the bin centres.  bin_average integrates
-    the Gaussian over each bin instead, which is exact and carries the same
-    yield on any grid.
-
     Args:
         Ein (numpy.array) : array of energy values on which to compute spectrum
         mean (float) : mean of spectrum
@@ -92,10 +86,6 @@ def QBrysk(Ein: npt.NDArray, mean: float, variance: float, bin_average: bool = F
 def QBallabio(Ein: npt.NDArray, mean: float, variance: float, bin_average: bool = False) -> npt.NDArray:
     """Calculates the primary spectrum with a Ballabio shape i.e. modified Gaussian
     See equations 44 - 46 of Ballabio et al.
-
-    The shape is a Gaussian in sqrt(E) rather than in E, so its bin integral is
-    still analytic: substituting u = sqrt(E) turns dE into 2u du and leaves an
-    error function term plus an exponential one.
 
     Args:
         Ein (numpy.array) : array of energy values on which to compute spectrum
@@ -390,34 +380,30 @@ def init_DT_scatter(Eout: npt.NDArray, Ein: npt.NDArray, bin_average: bool = Fal
     mat_dict["T"].init_station_scatter_matrices(bin_average=bin_average, bin_average_N=bin_average_N)
 
 
-def init_DT_ionkin_scatter(
-    varr: npt.NDArray,
-    nT: bool = False,
-    nD: bool = False,
-    bin_average: bool = False,
-    bin_average_N: int = 1,
-):
+def init_DT_ionkin_scatter(varr: npt.NDArray, nT: bool = False, nD: bool = False, bin_average_N: int = 1):
     """Initialise the scattering matrices including the effect of ion
     velocities in the kinematics
 
     N.B. the static ion scattering matrices must already be calculated
-    e.g. by calling init_DT_scatter
+    e.g. by calling init_DT_scatter, which is also where bin averaging is
+    switched on or off for both the static and the ion velocity kernels
 
     Args:
         Ein (numpy.array): the array on incoming neutron energies
         Eout (numpy.array): the array on outgoing neutron energies
+        bin_average_N (int): midpoint sub-divisions per bin when bin averaging
 
     """
     if nT:
         if mat_dict["T"].Ein is None:
             print("nT - Needed to initialise energy grids - see init_DT_scatter")
         else:
-            mat_dict["T"].full_scattering_matrix_create(varr, bin_average=bin_average, bin_average_N=bin_average_N)
+            mat_dict["T"].full_scattering_matrix_create(varr, bin_average_N=bin_average_N)
     if nD:
         if mat_dict["D"].Ein is None:
             print("nD - Needed to initialise energy grids - see init_DT_scatter")
         else:
-            mat_dict["D"].full_scattering_matrix_create(varr, bin_average=bin_average, bin_average_N=bin_average_N)
+            mat_dict["D"].full_scattering_matrix_create(varr, bin_average_N=bin_average_N)
 
 
 def calc_DT_ionkin_primspec_rhoL_integral(I_E: npt.NDArray, rhoL_func=None, nT: bool = False, nD: bool = False):
