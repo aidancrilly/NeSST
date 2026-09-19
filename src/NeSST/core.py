@@ -10,12 +10,14 @@ from os.path import basename
 
 import numpy as np
 import numpy.typing as npt
+from scipy.special import erf
 
 import NeSST.collisions as col
 import NeSST.spectral_model as sm
 
 # NeSST libraries
 from NeSST.constants import *
+from NeSST.utils import Ecentres_to_edges
 
 # Global variable defaults
 col.classical_collisions = False
@@ -59,30 +61,48 @@ def initialise_material_data(label):
 
 
 # Gaussian "Brysk"
-def QBrysk(Ein: npt.NDArray, mean: float, variance: float) -> npt.NDArray:
+def QBrysk(Ein: npt.NDArray, mean: float, variance: float, bin_average: bool = False) -> npt.NDArray:
     """Calculates the primary spectrum with a Brysk shape i.e. Gaussian
+
+    A fusion primary is narrow enough that a coarse grid can miss most of its
+    area when the shape is sampled at the bin centres.  bin_average integrates
+    the Gaussian over each bin instead, which is exact and carries the same
+    yield on any grid.
+
     Args:
         Ein (numpy.array) : array of energy values on which to compute spectrum
         mean (float) : mean of spectrum
         variance (float): variance of spectraum
+        bin_average (bool) : average over the energy bins rather than sampling
+            the shape at the bin centres
 
     Returns:
         numpy.array : array with Gaussian spectrum on array Ein
 
     """
+    if bin_average:
+        edges, widths = Ecentres_to_edges(Ein)
+        cdf = 0.5 * (1.0 + erf((np.asarray(edges) - mean) / np.sqrt(2.0 * variance)))
+        return np.diff(cdf) / np.asarray(widths)
     spec = np.exp(-((Ein - mean) ** 2) / 2.0 / variance) / np.sqrt(2 * np.pi * variance)
     return spec
 
 
 # Ballabio
-def QBallabio(Ein: npt.NDArray, mean: float, variance: float) -> npt.NDArray:
+def QBallabio(Ein: npt.NDArray, mean: float, variance: float, bin_average: bool = False) -> npt.NDArray:
     """Calculates the primary spectrum with a Ballabio shape i.e. modified Gaussian
     See equations 44 - 46 of Ballabio et al.
+
+    The shape is a Gaussian in sqrt(E) rather than in E, so its bin integral is
+    still analytic: substituting u = sqrt(E) turns dE into 2u du and leaves an
+    error function term plus an exponential one.
 
     Args:
         Ein (numpy.array) : array of energy values on which to compute spectrum
         mean (float) : mean of spectrum
         variance (float): variance of spectraum
+        bin_average (bool) : average over the energy bins rather than sampling
+            the shape at the bin centres
 
     Returns:
         numpy.array : array with modified Gaussian spectrum on array Ein
@@ -92,6 +112,14 @@ def QBallabio(Ein: npt.NDArray, mean: float, variance: float) -> npt.NDArray:
     Ebar = mean * np.sqrt(common_factor)
     sig2 = 4.0 / 3.0 * mean**2 * (np.sqrt(common_factor) - common_factor)
     norm = np.sqrt(2 * np.pi * variance)
+    if bin_average:
+        edges, widths = Ecentres_to_edges(Ein)
+        u = np.sqrt(np.asarray(edges))
+        u0 = np.sqrt(Ebar)
+        k = 2.0 * Ebar / sig2
+        # antiderivative of 2 u exp(-k (u - u0)^2) with respect to u
+        antideriv = -np.exp(-k * (u - u0) ** 2) / k + u0 * np.sqrt(np.pi / k) * erf(np.sqrt(k) * (u - u0))
+        return np.diff(antideriv) / np.asarray(widths) / norm
     spec = np.exp(-2.0 * Ebar * (np.sqrt(Ein) - np.sqrt(Ebar)) ** 2 / sig2) / norm
     return spec
 
@@ -108,7 +136,7 @@ def QDress_DT(Ein: npt.NDArray, T_D: float, T_T: float | None = None, n_samples:
     Returns:
         numpy.array: normalised DT spectrum (1/eV) evaluated at the bin centres of Ein
     """
-    from NeSST.dress_interface import DRESS_DT_spec, Ecentres_to_edges
+    from NeSST.dress_interface import DRESS_DT_spec
 
     if T_T is None:
         T_T = T_D
@@ -128,7 +156,7 @@ def QDress_DD(Ein: npt.NDArray, Tion: float, n_samples: int = int(1e6)) -> npt.N
     Returns:
         numpy.array: normalised DD spectrum (1/eV) evaluated at the bin centres of Ein
     """
-    from NeSST.dress_interface import DRESS_DD_spec, Ecentres_to_edges
+    from NeSST.dress_interface import DRESS_DD_spec
 
     Ebins, _ = Ecentres_to_edges(Ein)
     return DRESS_DD_spec(Tion, n_samples, Ebins)
