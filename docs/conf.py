@@ -15,8 +15,8 @@ project = "NeSST"
 copyright = "2024, Aidan Crilly"
 author = "Aidan Crilly"
 
-version = "1.1.2"
-release = "1.1.2"
+version = "2.0.0"
+release = "2.0.0"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
