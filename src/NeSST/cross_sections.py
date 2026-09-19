@@ -1,4 +1,5 @@
 # Backend of spectral model
+import dataclasses
 from dataclasses import dataclass
 
 import equinox as eqx
@@ -140,13 +141,24 @@ class LAW7Table(eqx.Module):
     Emax: Array
     Eout: Array
     f: Array
+    g: Array
     NEin: int = eqx.field(static=True)
+    unit_base: bool = eqx.field(static=True)
+    unit_base_N: int = eqx.field(static=True)
 
     def _f_interp(self, iE, ic, Eout):
         x = self.Eout[iE, ic]
         y = self.f[iE, ic]
         f = jnp.interp(Eout, x, y, left=0.0, right=0.0)
         return jnp.where((Eout < x[0]) | (Eout > x[-1]), 0.0, f)
+
+    def _f_unit_base(self, iE, ic, u):
+        Nu = self.unit_base_N
+        row = self.g[iE, ic]
+        t = jnp.clip(u, 0.0, 1.0) * (Nu - 1)
+        k = jnp.clip(jnp.floor(t).astype(jnp.int32), 0, Nu - 2)
+        w = t - k
+        return jnp.where(u > 1.0, 0.0, row[k] * (1.0 - w) + row[k + 1] * w)
 
     # Interpolate using Unit Base Transform
     def __call__(self, Ein, mu, Eout):
@@ -201,10 +213,17 @@ class LAW7Table(eqx.Module):
         J_222 = E_h22 / E_high_safe
 
         # Find unit base transformed energy
-        f_111 = self._f_interp(Eidx1, Cidx11, Eout * J_111) * J_111
-        f_112 = self._f_interp(Eidx1, Cidx12, Eout * J_112) * J_112
-        f_221 = self._f_interp(Eidx2, Cidx21, Eout * J_221) * J_221
-        f_222 = self._f_interp(Eidx2, Cidx22, Eout * J_222) * J_222
+        if self.unit_base:
+            u = Eout / E_high_safe
+            f_111 = self._f_unit_base(Eidx1, Cidx11, u) * J_111
+            f_112 = self._f_unit_base(Eidx1, Cidx12, u) * J_112
+            f_221 = self._f_unit_base(Eidx2, Cidx21, u) * J_221
+            f_222 = self._f_unit_base(Eidx2, Cidx22, u) * J_222
+        else:
+            f_111 = self._f_interp(Eidx1, Cidx11, Eout * J_111) * J_111
+            f_112 = self._f_interp(Eidx1, Cidx12, Eout * J_112) * J_112
+            f_221 = self._f_interp(Eidx2, Cidx21, Eout * J_221) * J_221
+            f_222 = self._f_interp(Eidx2, Cidx22, Eout * J_222) * J_222
 
         f_1 = x_111 * f_111 + x_112 * f_112
         f_2 = x_221 * f_221 + x_222 * f_222
@@ -222,7 +241,7 @@ class LAW7Table(eqx.Module):
 # Inelastic double differential cross sections
 # Reads and interpolated data saved in the ENDF interpreted data format
 class doubledifferentialcrosssection_data:
-    def __init__(self, ENDF_LAW6_xsec_data, ENDF_LAW6_dxsec_data):
+    def __init__(self, ENDF_LAW6_xsec_data, ENDF_LAW6_dxsec_data, unit_base=False, unit_base_N=None):
         self.xsec_interp = interpolate_1d(
             ENDF_LAW6_xsec_data["E"], ENDF_LAW6_xsec_data["sig"], method="linear", bounds_error=False, fill_value=0.0
         )
@@ -263,8 +282,52 @@ class doubledifferentialcrosssection_data:
             Emax=jnp.asarray(Emax_pad),
             Eout=jnp.asarray(Eout_pad),
             f=jnp.asarray(f_pad),
+            g=self.build_unit_base_table(unit_base_N) if unit_base else None,
             NEin=self.NEin_ddx,
+            unit_base=unit_base,
+            unit_base_N=unit_base_N,
         )
+
+    # Resampling each table onto a shared uniform grid in the unit base variable
+    # removes the per-point binary search from the evaluation. Each row is rescaled
+    # so the resampling conserves the integral of the original distribution.
+    def build_unit_base_table(self, Nu):
+        if Nu is None:
+            raise ValueError("unit_base_N must be set when the unit base transform is enabled")
+        u = np.linspace(0.0, 1.0, Nu)
+        g = np.zeros((self.NEin_ddx, max(self.Ncos_ddx), Nu))
+        for i in range(self.NEin_ddx):
+            for j in range(self.Ncos_ddx[i]):
+                x = np.asarray(self.Eout_ddx[(i, j)])
+                y = np.asarray(self.f_ddx[(i, j)])
+                Emax = self.Emax_ddx[(i, j)]
+                if Emax <= 0.0 or x.size < 2:
+                    continue
+                row = np.interp(u * Emax, x, y, left=0.0, right=0.0)
+                exact_integral = np.trapezoid(y, x)
+                resampled_integral = np.trapezoid(row, u) * Emax
+                if resampled_integral > 0.0:
+                    row = row * (exact_integral / resampled_integral)
+                g[i, j] = row
+        return jnp.asarray(g)
+
+    @property
+    def unit_base(self):
+        return self.table.unit_base
+
+    @unit_base.setter
+    def unit_base(self, flag):
+        if flag and self.table.g is None:
+            raise ValueError("unit_base_N must be set before enabling the unit base transform")
+        self.table = dataclasses.replace(self.table, unit_base=bool(flag))
+
+    @property
+    def unit_base_N(self):
+        return self.table.unit_base_N
+
+    @unit_base_N.setter
+    def unit_base_N(self, Nu):
+        self.table = dataclasses.replace(self.table, g=self.build_unit_base_table(Nu), unit_base_N=Nu)
 
     def interpolate(self, Ein, mu, Eout):
         return self.table(Ein, mu, Eout)
