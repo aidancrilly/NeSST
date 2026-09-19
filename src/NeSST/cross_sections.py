@@ -3,7 +3,6 @@ from dataclasses import dataclass
 
 import numpy as np
 import numpy.typing as npt
-from numpy.polynomial.legendre import legval
 from scipy.interpolate import griddata
 
 import NeSST.collisions as col
@@ -64,11 +63,11 @@ def diffxsec_legendre_eval(sig, mu, coeff):
     c = coeff.T
     ans = np.zeros_like(mu)
     if len(mu.shape) == 1:
-        ans = sig * legval(mu, c, tensor=False)
+        ans = sig * legval(mu, c)
     elif len(mu.shape) == 2:
-        ans = sig * legval(mu, c[:, None, :], tensor=False)
+        ans = sig * legval(mu, c[:, None, :])
     elif len(mu.shape) == 3:
-        ans = sig * legval(mu, c[:, None, None, :], tensor=False)
+        ans = sig * legval(mu, c[:, None, None, :])
     return np.where(np.abs(mu) > 1.0, 0.0, ans)
 
 
