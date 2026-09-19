@@ -50,6 +50,7 @@ pip install -e .
 - Inclusion of areal density asymmetry effects and variable fuel fractions
 - Backscatter edge shape effects from scattering ion kinematics
 - Synthetic neutron time-of-flight tools
+- JAX backend for the spectral model, collision, cross section and time-of-flight routines, giving jit compiled evaluation of the scattering matrices and detector response
 
 ## Future model developments:
 - Fitting models with ion kinematic approximations
