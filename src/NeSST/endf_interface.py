@@ -1,5 +1,5 @@
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 
 import endf
 import numpy as np
@@ -28,24 +28,49 @@ class ENDFManifest:
     n2n: bool
 
 
+@dataclass
+class ENDFNumerics:
+    """Evaluation independent numerical settings, read from the material json"""
+
+    law7_unit_base: bool = False
+    law7_unit_base_N: int | None = None
+
+    def __post_init__(self):
+        if self.law7_unit_base and self.law7_unit_base_N is None:
+            raise ValueError("law7_unit_base_N must be set when law7_unit_base is enabled")
+
+
 def retrieve_ENDF_data(json_file):
-    mainfest = convert_json_to_manifest(data_dir + json_file)
-    ENDF_data = retrieve_ENDF_data_from_manifest(mainfest)
+    manifest, numerics = convert_json_to_manifest(data_dir + json_file)
+    ENDF_data = retrieve_ENDF_data_from_manifest(manifest)
+    ENDF_data["numerics"] = numerics
     return ENDF_data
 
 
 def convert_json_to_manifest(json_file):
     with open(json_file, "r") as js:
         json_dict = json.load(js)
+
+    # The original schema is a flat map of ENDF filename to its manifest, which is
+    # still accepted; the "files" key opts in to sibling configuration blocks
+    file_dict = json_dict.get("files", json_dict)
+    numerics_dict = json_dict.get("numerics", {})
+
     manifest_dict = {}
-    for filename, file_manifest in json_dict.items():
+    for filename, file_manifest in file_dict.items():
         manifest_dict[filename] = ENDFManifest(
             total=file_manifest["total"],
             elastic=file_manifest["elastic"],
             inelastic=file_manifest["inelastic"],
             n2n=file_manifest["n2n"],
         )
-    return manifest_dict
+
+    unknown = set(numerics_dict) - {f.name for f in fields(ENDFNumerics)}
+    if unknown:
+        raise ValueError(f"{json_file}: unrecognised numerics settings {sorted(unknown)}")
+    numerics = ENDFNumerics(**numerics_dict)
+
+    return manifest_dict, numerics
 
 
 def retrieve_ENDF_data_from_manifest(manifest):

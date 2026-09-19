@@ -170,7 +170,13 @@ class material_data:
             if ENDF_data["n2n_dxsec"]["LAW"] == 6:
                 self.n2n_ddx = xs.doubledifferentialcrosssection_LAW6(ENDF_data["n2n_xsec"], ENDF_data["n2n_dxsec"])
             elif ENDF_data["n2n_dxsec"]["LAW"] == 7:
-                self.n2n_ddx = xs.doubledifferentialcrosssection_data(ENDF_data["n2n_xsec"], ENDF_data["n2n_dxsec"])
+                numerics = ENDF_data["numerics"]
+                self.n2n_ddx = xs.doubledifferentialcrosssection_data(
+                    ENDF_data["n2n_xsec"],
+                    ENDF_data["n2n_dxsec"],
+                    unit_base=numerics.law7_unit_base,
+                    unit_base_N=numerics.law7_unit_base_N,
+                )
 
         self.l_inelastic = ENDF_data["interactions"].inelastic
         if ENDF_data["interactions"].inelastic:
