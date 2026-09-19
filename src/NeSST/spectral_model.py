@@ -158,14 +158,13 @@ class material_data:
         self.inelastic_dNdEdmu = []
         for i_inelastic in range(self.n_inelastic):
             kin_a2 = (self.A / (self.A + 1)) ** 2 * (1.0 + (self.A + 1) / self.A * self.inelasticQ[i_inelastic] / Ei)
-            kin_a2_safe = kin_a2.copy()
-            kin_a2_safe[kin_a2_safe < 0.0] = 1.0
+            kin_a2_safe = np.where(kin_a2 < 0.0, 1.0, kin_a2)
             kin_a = np.sqrt(kin_a2_safe)
             kin_b = 1.0 / (self.A + 1)
             muc = ((Eo / Ei) - kin_a**2 - kin_b**2) / (2 * kin_a * kin_b)
             sigma = self.isigma[i_inelastic](self.Ein)
             inelastic_mu0 = (np.sqrt(Eo / Ei) - (kin_a**2 - kin_b**2) * np.sqrt(Ei / Eo)) / (2 * kin_b)
-            inelastic_mu0[kin_a2 < 0.0] = 0.0
+            inelastic_mu0 = np.where(kin_a2 < 0.0, 0.0, inelastic_mu0)
             self.inelastic_mu0.append(inelastic_mu0)
 
             if self.inelastic_legendre[i_inelastic]:
@@ -178,7 +177,7 @@ class material_data:
             jacob = 2.0 / ((kin_a + kin_b) ** 2 - (kin_a - kin_b) ** 2) / Ei
             inelastic_dNdEdmu = jacob * dsdO
 
-            inelastic_dNdEdmu[kin_a2 < 0.0] = 0.0
+            inelastic_dNdEdmu = np.where(kin_a2 < 0.0, 0.0, inelastic_dNdEdmu)
 
             self.inelastic_dNdEdmu.append(inelastic_dNdEdmu)
 

@@ -264,7 +264,7 @@ def top_hat(scint_thickness):
         R = np.eye(t_detected.size) + np.heaviside(tt_d - tt_a, 0.0) - np.heaviside(tt_d - (tt_a + tt_t), 1.0)
 
         row_sum = R.sum(axis=1, keepdims=True)
-        row_sum[row_sum == 0] = 1  # avoid div-by-zero
+        row_sum = np.where(row_sum == 0, 1.0, row_sum)  # avoid div-by-zero
         return R / row_sum
 
     def base(t_detected, En):
@@ -362,7 +362,7 @@ def inversegaussian_nIRF(
 
         t_shift = tt_d - (tt_a + tt_t)
         tail_hat = np.heaviside(t_shift, 0.5)
-        t_shift[t_shift < 0.0] = 0.0
+        t_shift = np.where(t_shift < 0.0, 0.0, t_shift)
         prefactor = lamb / mu
         t_coeff = 2 * mu**2 / lamb
         exp_arg = prefactor[None, :] * (1 - np.sqrt(1 + t_coeff[None, :] * t_shift))
@@ -371,7 +371,7 @@ def inversegaussian_nIRF(
         R = main_response + tail_response
 
         row_sum = R.sum(axis=1, keepdims=True)
-        row_sum[row_sum == 0] = 1  # avoid div-by-zero
+        row_sum = np.where(row_sum == 0, 1.0, row_sum)  # avoid div-by-zero
         return R / row_sum
 
     return base
@@ -387,7 +387,7 @@ def decaying_gaussian_kernel(FWHM, tau, shift_sigma=2.0):
         erf_arg = (t_shift - sig**2 / tau) / np.sqrt(2 * sig**2)
         g = np.exp(-t_shift / tau) * np.exp(0.5 * sig**2 / tau**2)
         g *= (1 + erf(erf_arg)) / (2 * tau)
-        g[t < 0] = 0
+        g = np.where(t < 0, 0.0, g)
         return g / np.trapezoid(g, x=t)
 
     return kernel
@@ -430,7 +430,7 @@ def t_gaussian_kernel(FWHM, peak_pos):
 
     def kernel(t):
         g = t * np.exp(-0.5 * ((t - mu) / sig) ** 2)
-        g[t < 0] = 0
+        g = np.where(t < 0, 0.0, g)
         return g / np.trapezoid(g, x=t)
 
     return kernel
@@ -465,7 +465,7 @@ def make_transit_time_IRF(thickness, kernel_fn, base_matrix_fn=None):
         Rconv = np.apply_along_axis(lambda m: np.convolve(m, kernel, mode="same"), axis=0, arr=Rbase)
 
         row_sum = Rconv.sum(axis=1, keepdims=True)
-        row_sum[row_sum == 0] = 1
+        row_sum = np.where(row_sum == 0, 1.0, row_sum)
         return Rconv / row_sum
 
     return irf
