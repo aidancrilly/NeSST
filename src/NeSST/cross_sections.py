@@ -82,14 +82,9 @@ def diffxsec_table_eval(sig, mu, E, table):
 
 # Interpolate the legendre coefficients (a_l) of the differential cross section
 # See https://t2.lanl.gov/nis/endf/intro20.html
-@eqx.filter_jit
-def _stack_Tlcoeff(legendre_dx_spline, E_vec):
-    return jnp.stack([spline(E_vec) for spline in legendre_dx_spline], axis=-1)
-
-
 def interp_Tlcoeff(legendre_dx_spline, E_vec):
     NTl = len(legendre_dx_spline)
-    Tlcoeff = _stack_Tlcoeff(tuple(legendre_dx_spline), jnp.asarray(E_vec))
+    Tlcoeff = jnp.stack([spline(E_vec) for spline in legendre_dx_spline], axis=-1)
     return Tlcoeff, NTl
 
 
@@ -107,32 +102,33 @@ def diffxsec_legendre_eval(sig, mu, coeff):
     return jnp.where(jnp.abs(mu) > 1.0, 0.0, ans)
 
 
-@eqx.filter_jit
-def _f_dsdO(Ein_vec, mu, sigma, legendre_dx_spline):
-    sig = sigma(Ein_vec)
+class DifferentialCrossSection(eqx.Module):
+    """sigma(Ein) dsigma/dOmega(mu), from legendre coefficients or a tabulated SDX"""
 
-    Nl = len(legendre_dx_spline)
-    Tlcoeff_interp = jnp.stack([spline(Ein_vec) for spline in legendre_dx_spline], axis=-1)
-    Tlcoeff_interp = 0.5 * (2 * jnp.arange(0, Nl) + 1) * Tlcoeff_interp
+    sigma: Interpolator1D
+    legendre: tuple
+    SDX: NeSST_SDX
 
-    dsdO = diffxsec_legendre_eval(sig, mu, Tlcoeff_interp)
-    return dsdO
+    def __call__(self, Ein_vec, mu, E_table=None):
+        sig = self.sigma(Ein_vec)
+        if self.legendre is None:
+            return diffxsec_table_eval(sig, mu, E_table, self.SDX)
+        Tlcoeff, Nl = interp_Tlcoeff(self.legendre, Ein_vec)
+        Tlcoeff_interp = 0.5 * (2 * jnp.arange(0, Nl) + 1) * Tlcoeff
+        return diffxsec_legendre_eval(sig, mu, Tlcoeff_interp)
 
 
 # CoM frame differential cross section wrapper fucntion
-def f_dsdO(Ein_vec, mu, material):
-    return _f_dsdO(jnp.asarray(Ein_vec), jnp.asarray(mu), material.sigma, tuple(material.legendre_dx_spline))
-
-
 @eqx.filter_jit
-def _dsigdOmega(A, Ein, Eout, Ein_vec, muin, muout, vf, sigma, legendre_dx_spline):
-    mu_CoM = col.muc(A, Ein, Eout, muin, muout, vf)
-    return _f_dsdO(Ein_vec, mu_CoM, sigma, legendre_dx_spline)
+def f_dsdO(Ein_vec, mu, dxs):
+    return dxs(Ein_vec, mu)
 
 
 # Differential cross section even larger wrapper function
-def dsigdOmega(A, Ein, Eout, Ein_vec, muin, muout, vf, material):
-    return _dsigdOmega(A, Ein, Eout, Ein_vec, muin, muout, vf, material.sigma, tuple(material.legendre_dx_spline))
+@eqx.filter_jit
+def dsigdOmega(A, Ein, Eout, Ein_vec, muin, muout, vf, dxs):
+    mu_CoM = col.muc(A, Ein, Eout, muin, muout, vf)
+    return dxs(Ein_vec, mu_CoM)
 
 
 # Number of points used to resample the LAW7 tables onto the unit base grid
@@ -142,6 +138,7 @@ LAW7_UNIT_BASE_N = 4096
 class LAW7Table(eqx.Module):
     """Padded ENDF LAW7 table evaluated with the unit base transform"""
 
+    xsec: Interpolator1D
     Ein: Array
     cos: Array
     Ncos: Array
@@ -240,10 +237,9 @@ class LAW7Table(eqx.Module):
         f_ddx = jnp.where(E_high == 0.0, 0.0, f_ddx)
         return jnp.where(Ein < self.Ein[0], 0.0, f_ddx)
 
-
-@eqx.filter_jit
-def _law7_regular_grid(table, xsec_interp, Ein, mu, Eout):
-    return jax.vmap(lambda E: 2.0 * xsec_interp(E) * jax.vmap(lambda m: table(E, m, Eout))(mu))(Ein)
+    @eqx.filter_jit
+    def regular_grid(self, Ein, mu, Eout):
+        return jax.vmap(lambda E: 2.0 * self.xsec(E) * jax.vmap(lambda m: self(E, m, Eout))(mu))(Ein)
 
 
 # Inelastic double differential cross sections
@@ -283,6 +279,7 @@ class doubledifferentialcrosssection_data:
                 f_pad[i, j, :NEo] = self.f_ddx[(i, j)]
 
         self.table = LAW7Table(
+            xsec=self.xsec_interp,
             Ein=jnp.asarray(self.Ein_ddx),
             cos=jnp.asarray(cos_pad),
             Ncos=jnp.asarray(self.Ncos_ddx),
@@ -337,19 +334,14 @@ class doubledifferentialcrosssection_data:
 
     def regular_grid(self, Ein, mu, Eout):
         self.rgrid_shape = (Ein.shape[0], mu.shape[0], Eout.shape[0])
-        grid = _law7_regular_grid(self.table, self.xsec_interp, jnp.asarray(Ein), jnp.asarray(mu), jnp.asarray(Eout))
+        grid = self.table.regular_grid(jnp.asarray(Ein), jnp.asarray(mu), jnp.asarray(Eout))
         self.rgrid = grid.reshape(self.rgrid_shape)
-
-
-@eqx.filter_jit
-def _law6_regular_grid(kernel, xsec_interp, Ein, mu, Eout):
-    Ei, Mm, Eo = jnp.meshgrid(Ein, mu, Eout, indexing="ij")
-    return 2.0 * xsec_interp(Ei) * kernel(Ei, Mm, Eo)
 
 
 class LAW6Kernel(eqx.Module):
     """Analytic ENDF LAW6 phase space double differential cross section"""
 
+    xsec: Interpolator1D
     A_i: float
     A_e: float
     A_t: float
@@ -367,6 +359,11 @@ class LAW6Kernel(eqx.Module):
         f_ddx = C3 * jnp.sqrt(Eout * square_bracket_term)
         return f_ddx
 
+    @eqx.filter_jit
+    def regular_grid(self, Ein, mu, Eout):
+        Ei, Mm, Eo = jnp.meshgrid(Ein, mu, Eout, indexing="ij")
+        return 2.0 * self.xsec(Ei) * self(Ei, Mm, Eo)
+
 
 class doubledifferentialcrosssection_LAW6:
     def __init__(self, ENDF_LAW6_xsec_data, ENDF_LAW6_dxsec_data):
@@ -380,13 +377,17 @@ class doubledifferentialcrosssection_LAW6:
             ENDF_LAW6_xsec_data["E"], ENDF_LAW6_xsec_data["sig"], method="linear", bounds_error=False, fill_value=0.0
         )
         self.kernel = LAW6Kernel(
-            A_i=self.A_i, A_e=self.A_e, A_t=self.A_t, A_p=self.A_p, A_tot=self.A_tot, Q_react=self.Q_react
+            xsec=self.xsec_interp,
+            A_i=self.A_i,
+            A_e=self.A_e,
+            A_t=self.A_t,
+            A_p=self.A_p,
+            A_tot=self.A_tot,
+            Q_react=self.Q_react,
         )
 
     def ddx(self, Ein, mu, Eout):
         return self.kernel(Ein, mu, Eout)
 
     def regular_grid(self, Ein, mu, Eout):
-        self.rgrid = _law6_regular_grid(
-            self.kernel, self.xsec_interp, jnp.asarray(Ein), jnp.asarray(mu), jnp.asarray(Eout)
-        )
+        self.rgrid = self.kernel.regular_grid(jnp.asarray(Ein), jnp.asarray(mu), jnp.asarray(Eout))

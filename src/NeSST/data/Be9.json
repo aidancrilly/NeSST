@@ -1,9 +1,14 @@
 {
-    "n-004_Be_009.endf" :
-    {
-        "total" : true,
-        "elastic" : true,
-        "inelastic" : true,
-        "n2n" : true
+    "files": {
+        "n-004_Be_009.endf": {
+            "total": true,
+            "elastic": true,
+            "inelastic": true,
+            "n2n": true
+        }
+    },
+    "numerics": {
+        "law7_unit_base": true,
+        "law7_unit_base_N": 4096
     }
 }

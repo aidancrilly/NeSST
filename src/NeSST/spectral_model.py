@@ -27,80 +27,85 @@ def unity(x):
     return jnp.ones_like(x)
 
 
-@eqx.filter_jit
-def _elastic_scatter_matrices(A, Ein, Eout, sigma, legendre_dx_spline, SDX_table):
-    Ei, Eo = jnp.meshgrid(Ein, Eout)
-    muc = col.muc(A, Ei, Eo, 1.0, -1.0, 0.0)
-    sig = sigma(Ein)
-    mu0 = col.mu_out(A, Ei, Eo, 0.0)
-    if legendre_dx_spline is not None:
-        Nl = len(legendre_dx_spline)
-        Tlcoeff = jnp.stack([spline(Ein) for spline in legendre_dx_spline], axis=-1)
-        Tlcoeff_interp = 0.5 * (2 * jnp.arange(0, Nl) + 1) * Tlcoeff
-        dsdO = xs.diffxsec_legendre_eval(sig, muc, Tlcoeff_interp)
-    else:
-        dsdO = xs.diffxsec_table_eval(sig, muc, Ei, SDX_table)
-    jacob = col.g(A, Ei, Eo, 1.0, -1.0, 0.0)
-    return mu0, jacob * dsdO
+class ElasticScatterKernel(eqx.Module):
+    """Stationary ion elastic scattering matrices"""
+
+    A: float
+    dxs: xs.DifferentialCrossSection
+
+    @eqx.filter_jit
+    def __call__(self, Ein, Eout):
+        Ei, Eo = jnp.meshgrid(Ein, Eout)
+        muc = col.muc(self.A, Ei, Eo, 1.0, -1.0, 0.0)
+        mu0 = col.mu_out(self.A, Ei, Eo, 0.0)
+        dsdO = self.dxs(Ein, muc, Ei)
+        jacob = col.g(self.A, Ei, Eo, 1.0, -1.0, 0.0)
+        return mu0, jacob * dsdO
+
+
+class InelasticScatterKernel(eqx.Module):
+    """Stationary ion inelastic scattering matrices, classical kinematics"""
+
+    A: float
+    Q: float
+    dxs: xs.DifferentialCrossSection
+
+    @eqx.filter_jit
+    def __call__(self, Ein, Eout):
+        Ei, Eo = jnp.meshgrid(Ein, Eout)
+        kin_a2 = (self.A / (self.A + 1)) ** 2 * (1.0 + (self.A + 1) / self.A * self.Q / Ei)
+        kin_a2_safe = jnp.where(kin_a2 < 0.0, 1.0, kin_a2)
+        kin_a = jnp.sqrt(kin_a2_safe)
+        kin_b = 1.0 / (self.A + 1)
+        muc = ((Eo / Ei) - kin_a**2 - kin_b**2) / (2 * kin_a * kin_b)
+        mu0 = (jnp.sqrt(Eo / Ei) - (kin_a**2 - kin_b**2) * jnp.sqrt(Ei / Eo)) / (2 * kin_b)
+        mu0 = jnp.where(kin_a2 < 0.0, 0.0, mu0)
+
+        dsdO = self.dxs(Ein, muc, Ei)
+
+        jacob = 2.0 / ((kin_a + kin_b) ** 2 - (kin_a - kin_b) ** 2) / Ei
+        dNdEdmu = jnp.where(kin_a2 < 0.0, 0.0, jacob * dsdO)
+        return mu0, dNdEdmu
+
+
+class IonKinematicScatterKernel(eqx.Module):
+    """Elastic scattering matrices including the scattering ion velocity"""
+
+    A: float
+    dxs: xs.DifferentialCrossSection
+
+    @eqx.filter_jit
+    def __call__(self, Eout, vvec, Ein):
+        Eo, vv, Ei = jnp.meshgrid(Eout, vvec, Ein, indexing="ij")
+        # Reverse velocity direction so +ve vf is implosion
+        # Choose this way round so vf is +ve if shell coming TOWARDS detector
+        vf = -vv
+        muout = col.mu_out(self.A, Ei, Eo, vf)
+        jacob = col.g(self.A, Ei, Eo, 1.0, muout, vf)
+        flux_change = col.flux_change(Ei, 1.0, vf)
+        # Integrand of Eq. 8 in A. J. Crilly 2019 PoP
+        dsigdOmega = xs.dsigdOmega(self.A, Ei, Eo, Ein, 1.0, muout, vf, self.dxs)
+        return flux_change * dsigdOmega * jacob, muout
 
 
 @eqx.filter_jit
-def _inelastic_scatter_matrices(A, Ein, Eout, isigma, Q, legendre_idx_spline, SDX_table):
-    Ei, Eo = jnp.meshgrid(Ein, Eout)
-    kin_a2 = (A / (A + 1)) ** 2 * (1.0 + (A + 1) / A * Q / Ei)
-    kin_a2_safe = jnp.where(kin_a2 < 0.0, 1.0, kin_a2)
-    kin_a = jnp.sqrt(kin_a2_safe)
-    kin_b = 1.0 / (A + 1)
-    muc = ((Eo / Ei) - kin_a**2 - kin_b**2) / (2 * kin_a * kin_b)
-    sig = isigma(Ein)
-    mu0 = (jnp.sqrt(Eo / Ei) - (kin_a**2 - kin_b**2) * jnp.sqrt(Ei / Eo)) / (2 * kin_b)
-    mu0 = jnp.where(kin_a2 < 0.0, 0.0, mu0)
-
-    if legendre_idx_spline is not None:
-        Nl = len(legendre_idx_spline)
-        Tlcoeff = jnp.stack([spline(Ein) for spline in legendre_idx_spline], axis=-1)
-        Tlcoeff_interp = 0.5 * (2 * jnp.arange(0, Nl) + 1) * Tlcoeff
-        dsdO = xs.diffxsec_legendre_eval(sig, muc, Tlcoeff_interp)
-    else:
-        dsdO = xs.diffxsec_table_eval(sig, muc, Ei, SDX_table)
-
-    jacob = 2.0 / ((kin_a + kin_b) ** 2 - (kin_a - kin_b) ** 2) / Ei
-    dNdEdmu = jnp.where(kin_a2 < 0.0, 0.0, jacob * dsdO)
-    return mu0, dNdEdmu
-
-
-@eqx.filter_jit
-def _dNdE_integral(dNdEdmu, rhoL_asym, I_E, Ein):
+def dNdE_integral(dNdEdmu, rhoL_asym, I_E, Ein):
     return jnp.trapezoid(dNdEdmu * rhoL_asym * I_E[None, :], Ein, axis=1)
 
 
 @eqx.filter_jit
-def _n2n_dNdE_integral(rgrid, rhoL_asym, n2n_mu, I_E, Ein):
+def n2n_dNdE_integral(rgrid, rhoL_asym, n2n_mu, I_E, Ein):
     grid_dNdE = jnp.trapezoid(rgrid * rhoL_asym[None, :, None], n2n_mu, axis=1)
     return jnp.trapezoid(I_E[:, None] * grid_dNdE, Ein, axis=0)
 
 
 @eqx.filter_jit
-def _full_scattering_matrices(A, Eout, vvec, Ein, sigma, legendre_dx_spline):
-    Eo, vv, Ei = jnp.meshgrid(Eout, vvec, Ein, indexing="ij")
-    # Reverse velocity direction so +ve vf is implosion
-    # Choose this way round so vf is +ve if shell coming TOWARDS detector
-    vf = -vv
-    muout = col.mu_out(A, Ei, Eo, vf)
-    jacob = col.g(A, Ei, Eo, 1.0, muout, vf)
-    flux_change = col.flux_change(Ei, 1.0, vf)
-    # Integrand of Eq. 8 in A. J. Crilly 2019 PoP
-    dsigdOmega = xs._dsigdOmega(A, Ei, Eo, Ein, 1.0, muout, vf, sigma, legendre_dx_spline)
-    return flux_change * dsigdOmega * jacob, muout
-
-
-@eqx.filter_jit
-def _primspec_int(rhoL_mult, full_scattering_M, I_E, Ein):
+def primspec_integral(rhoL_mult, full_scattering_M, I_E, Ein):
     return jnp.trapezoid(rhoL_mult * full_scattering_M * I_E[None, None, :], Ein, axis=2)
 
 
 @eqx.filter_jit
-def _gaussian_velocity_int(M_prim, vvec, vbar, dv):
+def gaussian_velocity_integral(M_prim, vvec, vbar, dv):
     gauss = jnp.exp(-((vvec - vbar) ** 2) / 2.0 / (dv**2)) / jnp.sqrt(2 * jnp.pi) / dv
     return jnp.trapezoid(M_prim * gauss[None, :], vvec, axis=1)
 
@@ -147,15 +152,31 @@ class material_data:
                             fill_value=0.0,
                         )
                     )
+                self.elastic_SDX_table = None
             else:
+                self.legendre_dx_spline = None
                 self.elastic_SDX_table = ENDF_data["elastic_dxsec"]["SDX"]
+
+            self.elastic_dxs = xs.DifferentialCrossSection(
+                sigma=self.sigma,
+                legendre=tuple(self.legendre_dx_spline) if self.elastic_legendre else None,
+                SDX=self.elastic_SDX_table,
+            )
+            self.elastic_kernel = ElasticScatterKernel(A=self.A, dxs=self.elastic_dxs)
+            self.ion_kinematic_kernel = IonKinematicScatterKernel(A=self.A, dxs=self.elastic_dxs)
 
         self.l_n2n = ENDF_data["interactions"].n2n
         if ENDF_data["interactions"].n2n:
             if ENDF_data["n2n_dxsec"]["LAW"] == 6:
                 self.n2n_ddx = xs.doubledifferentialcrosssection_LAW6(ENDF_data["n2n_xsec"], ENDF_data["n2n_dxsec"])
             elif ENDF_data["n2n_dxsec"]["LAW"] == 7:
-                self.n2n_ddx = xs.doubledifferentialcrosssection_data(ENDF_data["n2n_xsec"], ENDF_data["n2n_dxsec"])
+                numerics = ENDF_data["numerics"]
+                self.n2n_ddx = xs.doubledifferentialcrosssection_data(
+                    ENDF_data["n2n_xsec"],
+                    ENDF_data["n2n_dxsec"],
+                    unit_base=numerics.law7_unit_base,
+                    unit_base_N=numerics.law7_unit_base_N,
+                )
 
         self.l_inelastic = ENDF_data["interactions"].inelastic
         if ENDF_data["interactions"].inelastic:
@@ -166,6 +187,7 @@ class material_data:
             self.inelastic_legendre = []
             self.legendre_idx_spline = []
             self.inelastic_SDX_table = []
+            self.inelastic_kernel = []
 
             for i_inelastic in range(self.n_inelastic):
                 xsec_table = ENDF_data[f"inelastic_xsec_n{i_inelastic + 1}"]
@@ -197,6 +219,20 @@ class material_data:
                     self.legendre_idx_spline.append(None)
                     self.inelastic_SDX_table.append(dxsec_table["SDX"])
 
+                self.inelastic_kernel.append(
+                    InelasticScatterKernel(
+                        A=self.A,
+                        Q=self.inelasticQ[i_inelastic],
+                        dxs=xs.DifferentialCrossSection(
+                            sigma=self.isigma[i_inelastic],
+                            legendre=tuple(self.legendre_idx_spline[i_inelastic])
+                            if self.inelastic_legendre[i_inelastic]
+                            else None,
+                            SDX=self.inelastic_SDX_table[i_inelastic],
+                        ),
+                    )
+                )
+
         self.Ein = None
         self.Eout = None
         self.vvec = None
@@ -218,14 +254,7 @@ class material_data:
 
     # Elastic scatter matrix
     def init_station_elastic_scatter(self):
-        self.elastic_mu0, self.elastic_dNdEdmu = _elastic_scatter_matrices(
-            self.A,
-            jnp.asarray(self.Ein),
-            jnp.asarray(self.Eout),
-            self.sigma,
-            tuple(self.legendre_dx_spline) if self.elastic_legendre else None,
-            None if self.elastic_legendre else self.elastic_SDX_table,
-        )
+        self.elastic_mu0, self.elastic_dNdEdmu = self.elastic_kernel(jnp.asarray(self.Ein), jnp.asarray(self.Eout))
 
     # Inelastic scatter matrix
     # Currently uses classical kinematics
@@ -233,16 +262,7 @@ class material_data:
         self.inelastic_mu0 = []
         self.inelastic_dNdEdmu = []
         for i_inelastic in range(self.n_inelastic):
-            legendre = self.inelastic_legendre[i_inelastic]
-            mu0, dNdEdmu = _inelastic_scatter_matrices(
-                self.A,
-                jnp.asarray(self.Ein),
-                jnp.asarray(self.Eout),
-                self.isigma[i_inelastic],
-                jnp.asarray(self.inelasticQ[i_inelastic]),
-                tuple(self.legendre_idx_spline[i_inelastic]) if legendre else None,
-                None if legendre else self.inelastic_SDX_table[i_inelastic],
-            )
+            mu0, dNdEdmu = self.inelastic_kernel[i_inelastic](jnp.asarray(self.Ein), jnp.asarray(self.Eout))
             self.inelastic_mu0.append(mu0)
             self.inelastic_dNdEdmu.append(dNdEdmu)
 
@@ -260,19 +280,19 @@ class material_data:
     # Spectrum produced by scattering of incoming isotropic neutron source I_E with normalised areal density asymmetry rhoR_asym_func
     def calc_station_elastic_dNdE(self, I_E, rhoL_func):
         rhoL_asym = rhoL_func(self.elastic_mu0)
-        self.elastic_dNdE = _dNdE_integral(self.elastic_dNdEdmu, rhoL_asym, I_E, jnp.asarray(self.Ein))
+        self.elastic_dNdE = dNdE_integral(self.elastic_dNdEdmu, rhoL_asym, I_E, jnp.asarray(self.Ein))
 
     def calc_station_inelastic_dNdE(self, I_E, rhoL_func):
         self.inelastic_dNdE = jnp.zeros(self.Eout.shape[0])
         for i_inelastic in range(self.n_inelastic):
             rhoL_asym = rhoL_func(self.inelastic_mu0[i_inelastic])
-            self.inelastic_dNdE += _dNdE_integral(
+            self.inelastic_dNdE += dNdE_integral(
                 self.inelastic_dNdEdmu[i_inelastic], rhoL_asym, I_E, jnp.asarray(self.Ein)
             )
 
     def calc_n2n_dNdE(self, I_E, rhoL_func):
         rhoL_asym = rhoL_func(self.n2n_mu)
-        self.n2n_dNdE = _n2n_dNdE_integral(self.n2n_ddx.rgrid, rhoL_asym, self.n2n_mu, I_E, jnp.asarray(self.Ein))
+        self.n2n_dNdE = n2n_dNdE_integral(self.n2n_ddx.rgrid, rhoL_asym, self.n2n_mu, I_E, jnp.asarray(self.Ein))
 
     def rhoR_2_A1s(self, rhoR):
         mbar = self.A * Mn_kg
@@ -302,13 +322,8 @@ class material_data:
     def full_scattering_matrix_create(self, vvec):
         self.vvec = vvec
 
-        self.full_scattering_M, self.full_scattering_mu = _full_scattering_matrices(
-            self.A,
-            jnp.asarray(self.Eout),
-            jnp.asarray(vvec),
-            jnp.asarray(self.Ein),
-            self.sigma,
-            tuple(self.legendre_dx_spline),
+        self.full_scattering_M, self.full_scattering_mu = self.ion_kinematic_kernel(
+            jnp.asarray(self.Eout), jnp.asarray(vvec), jnp.asarray(self.Ein)
         )
         self.rhoL_mult = jnp.ones_like(self.full_scattering_mu)
 
@@ -318,12 +333,12 @@ class material_data:
 
     # Integrate out the birth neutron spectrum
     def matrix_primspec_int(self, I_E):
-        self.M_prim = _primspec_int(self.rhoL_mult, self.full_scattering_M, I_E, jnp.asarray(self.Ein))
+        self.M_prim = primspec_integral(self.rhoL_mult, self.full_scattering_M, I_E, jnp.asarray(self.Ein))
 
     # Integrate out the ion velocity distribution
     def matrix_interpolate_gaussian(self, E, vbar, dv):
         # Integrating over Gaussian
-        M_v = _gaussian_velocity_int(self.M_prim, jnp.asarray(self.vvec), jnp.asarray(vbar), jnp.asarray(dv))
+        M_v = gaussian_velocity_integral(self.M_prim, jnp.asarray(self.vvec), jnp.asarray(vbar), jnp.asarray(dv))
         # Interpolate to energy points E
         interp = interpolate_1d(self.Eout, M_v, method="linear", bounds_error=False)
         return interp(E)
