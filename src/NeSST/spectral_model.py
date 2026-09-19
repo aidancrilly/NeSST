@@ -341,8 +341,6 @@ class material_data:
                 legendre=tuple(self.legendre_dx_spline) if self.elastic_legendre else None,
                 SDX=self.elastic_SDX_table,
             )
-            self.elastic_kernel = ElasticScatterKernel(A=self.A, dxs=self.elastic_dxs)
-            self.ion_kinematic_kernel = IonKinematicScatterKernel(A=self.A, dxs=self.elastic_dxs)
 
         self.l_n2n = ENDF_data["interactions"].n2n
         if ENDF_data["interactions"].n2n:
@@ -367,7 +365,6 @@ class material_data:
             self.legendre_idx_spline = []
             self.inelastic_SDX_table = []
             self.inelastic_dxs = []
-            self.inelastic_kernel = []
 
             for i_inelastic in range(self.n_inelastic):
                 xsec_table = ENDF_data[f"inelastic_xsec_n{i_inelastic + 1}"]
@@ -408,19 +405,12 @@ class material_data:
                         SDX=self.inelastic_SDX_table[i_inelastic],
                     )
                 )
-                self.inelastic_kernel.append(
-                    InelasticScatterKernel(
-                        A=self.A, Q=self.inelasticQ[i_inelastic], dxs=self.inelastic_dxs[i_inelastic]
-                    )
-                )
 
         self.Ein = None
         self.Eout = None
         self.vvec = None
         self.bin_average = False
-        self.bin_average_kernel = None
-        self.bin_average_inelastic_kernel = []
-        self.bin_average_ion_kinematic_kernel = None
+        self.bin_average_N = 1
 
     ############################################
     # Stationary ion scattered spectral shapes #
@@ -432,13 +422,7 @@ class material_data:
 
     def init_station_scatter_matrices(self, Nm=100, bin_average=False, bin_average_N=1):
         self.bin_average = bin_average
-        if bin_average:
-            self.bin_average_kernel = BinAveragedElasticScatterKernel(A=self.A, dxs=self.elastic_dxs, N=bin_average_N)
-            if self.l_inelastic:
-                self.bin_average_inelastic_kernel = [
-                    BinAveragedInelasticScatterKernel(A=self.A, Q=Q, dxs=dxs, N=bin_average_N)
-                    for Q, dxs in zip(self.inelasticQ, self.inelastic_dxs, strict=True)
-                ]
+        self.bin_average_N = bin_average_N
         self.init_station_elastic_scatter()
         if self.l_n2n:
             self.init_n2n_ddxs(Nm)
@@ -447,7 +431,10 @@ class material_data:
 
     # Elastic scatter matrix
     def init_station_elastic_scatter(self):
-        kernel = self.bin_average_kernel if self.bin_average else self.elastic_kernel
+        if self.bin_average:
+            kernel = BinAveragedElasticScatterKernel(A=self.A, dxs=self.elastic_dxs, N=self.bin_average_N)
+        else:
+            kernel = ElasticScatterKernel(A=self.A, dxs=self.elastic_dxs)
         self.elastic_mu0, self.elastic_dNdEdmu = kernel(jnp.asarray(self.Ein), jnp.asarray(self.Eout))
 
     # Inelastic scatter matrix
@@ -456,10 +443,11 @@ class material_data:
         self.inelastic_mu0 = []
         self.inelastic_dNdEdmu = []
         for i_inelastic in range(self.n_inelastic):
+            Q, dxs = self.inelasticQ[i_inelastic], self.inelastic_dxs[i_inelastic]
             if self.bin_average:
-                kernel = self.bin_average_inelastic_kernel[i_inelastic]
+                kernel = BinAveragedInelasticScatterKernel(A=self.A, Q=Q, dxs=dxs, N=self.bin_average_N)
             else:
-                kernel = self.inelastic_kernel[i_inelastic]
+                kernel = InelasticScatterKernel(A=self.A, Q=Q, dxs=dxs)
             mu0, dNdEdmu = kernel(jnp.asarray(self.Ein), jnp.asarray(self.Eout))
             self.inelastic_mu0.append(mu0)
             self.inelastic_dNdEdmu.append(dNdEdmu)
@@ -529,12 +517,9 @@ class material_data:
         self.vvec = vvec
 
         if self.bin_average:
-            self.bin_average_ion_kinematic_kernel = BinAveragedIonKinematicScatterKernel(
-                A=self.A, dxs=self.elastic_dxs, N=bin_average_N
-            )
-            kernel = self.bin_average_ion_kinematic_kernel
+            kernel = BinAveragedIonKinematicScatterKernel(A=self.A, dxs=self.elastic_dxs, N=bin_average_N)
         else:
-            kernel = self.ion_kinematic_kernel
+            kernel = IonKinematicScatterKernel(A=self.A, dxs=self.elastic_dxs)
         self.full_scattering_M, self.full_scattering_mu = kernel(
             jnp.asarray(self.Eout), jnp.asarray(vvec), jnp.asarray(self.Ein)
         )

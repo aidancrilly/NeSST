@@ -200,7 +200,8 @@ def test_bin_average_is_opt_in():
     explicit = np.asarray(mat.elastic_dNdEdmu)
 
     np.testing.assert_array_equal(default, explicit)
-    _, pointwise = mat.elastic_kernel(jnp.asarray(Ein), jnp.asarray(Eout))
+    kernel = sm.ElasticScatterKernel(A=mat.A, dxs=mat.elastic_dxs)
+    _, pointwise = kernel(jnp.asarray(Ein), jnp.asarray(Eout))
     np.testing.assert_array_equal(default, np.asarray(pointwise))
 
 
@@ -230,7 +231,8 @@ def test_elastic_sum_rule_is_flat_in_outgoing_resolution(carbon):
 
     for NEout in (100, 1000):
         Eout = np.linspace(1.0e3, 15.0e6, NEout)
-        _, K = carbon.elastic_kernel(jnp.asarray(Ein), jnp.asarray(Eout))
+        kernel = sm.ElasticScatterKernel(A=carbon.A, dxs=carbon.elastic_dxs)
+        _, K = kernel(jnp.asarray(Ein), jnp.asarray(Eout))
         pointwise = np.abs(np.asarray(jnp.trapezoid(K, jnp.asarray(Eout), axis=0)) / sig_c - 1).max()
         assert _sum_rule_error(carbon, Ein, Eout, N=4) < pointwise / 10.0
 
@@ -244,7 +246,7 @@ def test_inelastic_kernel_is_finite_below_threshold(carbon):
         kernel = sm.BinAveragedInelasticScatterKernel(
             A=carbon.A,
             Q=carbon.inelasticQ[i_inelastic],
-            dxs=carbon.inelastic_kernel[i_inelastic].dxs,
+            dxs=carbon.inelastic_dxs[i_inelastic],
             N=2,
         )
         mu0, dNdEdmu = kernel(jnp.asarray(Ein), jnp.asarray(Eout))
@@ -287,7 +289,8 @@ def test_ion_kinematic_bin_average_shape_and_normalisation():
     Eout = np.linspace(1.0e3, 15.0e6, 400)
     varr = np.array([-4.0e5, 0.0, 4.0e5])
 
-    point_M, point_mu = mat.ion_kinematic_kernel(jnp.asarray(Eout), jnp.asarray(varr), jnp.asarray(Ein))
+    point_kernel = sm.IonKinematicScatterKernel(A=mat.A, dxs=mat.elastic_dxs)
+    point_M, point_mu = point_kernel(jnp.asarray(Eout), jnp.asarray(varr), jnp.asarray(Ein))
     kernel = sm.BinAveragedIonKinematicScatterKernel(A=mat.A, dxs=mat.elastic_dxs, N=1)
     M, mu = kernel(jnp.asarray(Eout), jnp.asarray(varr), jnp.asarray(Ein))
 
@@ -314,7 +317,7 @@ def _scatter_twice(mat, E, bin_average, N=1):
     if bin_average:
         kernel = sm.BinAveragedElasticScatterKernel(A=mat.A, dxs=mat.elastic_dxs, N=N)
     else:
-        kernel = mat.elastic_kernel
+        kernel = sm.ElasticScatterKernel(A=mat.A, dxs=mat.elastic_dxs)
     _, K = kernel(jnp.asarray(E), jnp.asarray(E))
 
     if bin_average:
