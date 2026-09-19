@@ -1,5 +1,6 @@
 # Backend of spectral model
 
+import jax.numpy as jnp
 import numpy as np
 
 import NeSST.collisions as col
@@ -21,7 +22,7 @@ A_Be = MBe / Mn
 
 
 def unity(x):
-    return np.ones_like(x)
+    return jnp.ones_like(x)
 
 
 class material_data:
@@ -66,8 +67,16 @@ class material_data:
                             fill_value=0.0,
                         )
                     )
+                self.elastic_SDX_table = None
             else:
+                self.legendre_dx_spline = None
                 self.elastic_SDX_table = ENDF_data["elastic_dxsec"]["SDX"]
+
+            self.elastic_dxs = xs.DifferentialCrossSection(
+                sigma=self.sigma,
+                legendre=tuple(self.legendre_dx_spline) if self.elastic_legendre else None,
+                SDX=self.elastic_SDX_table,
+            )
 
         self.l_n2n = ENDF_data["interactions"].n2n
         if ENDF_data["interactions"].n2n:
@@ -246,7 +255,7 @@ class material_data:
         jacob = col.g(self.A, Ei, Eo, 1.0, muout, vf)
         flux_change = col.flux_change(Ei, 1.0, vf)
         # Integrand of Eq. 8 in A. J. Crilly 2019 PoP
-        dsigdOmega = xs.dsigdOmega(self.A, Ei, Eo, self.Ein, 1.0, muout, vf, self)
+        dsigdOmega = xs.dsigdOmega(self.A, Ei, Eo, self.Ein, 1.0, muout, vf, self.elastic_dxs)
 
         self.full_scattering_M = flux_change * dsigdOmega * jacob
         self.full_scattering_mu = muout

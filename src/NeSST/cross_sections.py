@@ -1,9 +1,13 @@
 # Backend of spectral model
 from dataclasses import dataclass
 
+import equinox as eqx
+import jax
+import jax.numpy as jnp
 import numpy as np
 import numpy.typing as npt
-from scipy.interpolate import griddata
+from jaxtyping import Array
+from scipy.spatial import Delaunay
 
 import NeSST.collisions as col
 from NeSST.constants import *
@@ -14,11 +18,45 @@ from NeSST.utils import *
 ###############################
 
 
-@dataclass
-class NeSST_SDX:
+class NeSST_SDX(eqx.Module):
     Ein: npt.NDArray
     points: npt.NDArray
     values: npt.NDArray
+    simplices: Array
+    transform: Array
+    offset: Array
+    scale: Array
+
+    def __init__(self, Ein, points, values):
+        self.Ein = Ein
+        self.points = points
+        self.values = values
+        points = np.asarray(points, dtype=np.float64)
+        offset = points.min(axis=0)
+        scale = np.ptp(points, axis=0)
+        scale[scale == 0.0] = 1.0
+        tri = Delaunay((points - offset) / scale)
+        self.simplices = jnp.asarray(tri.simplices)
+        self.transform = jnp.asarray(tri.transform)
+        self.offset = jnp.asarray(offset)
+        self.scale = jnp.asarray(scale)
+
+    def __call__(self, E, mu):
+        shape = jnp.shape(mu)
+        xi = jnp.stack([jnp.ravel(jnp.broadcast_to(E, shape)), jnp.ravel(mu)], axis=-1)
+        xi = (xi - self.offset) / self.scale
+        values = jnp.asarray(self.values)
+
+        def evaluate(x):
+            delta = x[None, :] - self.transform[:, 2, :]
+            bary = jnp.einsum("tij,tj->ti", self.transform[:, :2, :], delta)
+            bary = jnp.concatenate([bary, 1.0 - bary.sum(axis=1, keepdims=True)], axis=1)
+            inside = jnp.all(bary >= -1e-12, axis=1) & jnp.all(jnp.isfinite(bary), axis=1)
+            t = jnp.argmax(inside)
+            f = jnp.sum(bary[t] * values[self.simplices[t]])
+            return jnp.where(inside[t], f, jnp.nan)
+
+        return jax.lax.map(evaluate, xi, batch_size=64).reshape(shape)
 
 
 @dataclass
@@ -37,56 +75,59 @@ class NeSST_DDX:
 
 
 def diffxsec_table_eval(sig, mu, E, table):
-    xi = np.column_stack((E.flatten(), mu.flatten()))
-    # Rescale is very important, gives poor results otherwise
-    interp = griddata(table.points, table.values, xi, rescale=True).reshape(mu.shape)
-
-    ans = sig * interp
-    return np.where(np.abs(mu) > 1.0, 0.0, ans)
+    ans = sig * table(E, mu)
+    return jnp.where(jnp.abs(mu) > 1.0, 0.0, jnp.nan_to_num(ans, nan=0.0))
 
 
 # Interpolate the legendre coefficients (a_l) of the differential cross section
 # See https://t2.lanl.gov/nis/endf/intro20.html
 def interp_Tlcoeff(legendre_dx_spline, E_vec):
-    size = [E_vec.shape[0]]
     NTl = len(legendre_dx_spline)
-    size.append(NTl)
-    Tlcoeff = np.zeros(size)
-    for i in range(NTl):
-        Tlcoeff[:, i] = legendre_dx_spline[i](E_vec)
+    Tlcoeff = jnp.stack([spline(E_vec) for spline in legendre_dx_spline], axis=-1)
     return Tlcoeff, NTl
 
 
 # Evaluate the differential cross section by combining legendre and cross section
 # See https://t2.lanl.gov/nis/endf/intro20.html
+@jax.jit
 def diffxsec_legendre_eval(sig, mu, coeff):
     c = coeff.T
-    ans = np.zeros_like(mu)
-    if len(mu.shape) == 1:
+    if mu.ndim == 1:
         ans = sig * legval(mu, c)
-    elif len(mu.shape) == 2:
+    elif mu.ndim == 2:
         ans = sig * legval(mu, c[:, None, :])
-    elif len(mu.shape) == 3:
+    elif mu.ndim == 3:
         ans = sig * legval(mu, c[:, None, None, :])
-    return np.where(np.abs(mu) > 1.0, 0.0, ans)
+    return jnp.where(jnp.abs(mu) > 1.0, 0.0, ans)
+
+
+class DifferentialCrossSection(eqx.Module):
+    """sigma(Ein) dsigma/dOmega(mu), from legendre coefficients or a tabulated SDX"""
+
+    sigma: Interpolator1D
+    legendre: tuple
+    SDX: NeSST_SDX
+
+    def __call__(self, Ein_vec, mu, E_table=None):
+        sig = self.sigma(Ein_vec)
+        if self.legendre is None:
+            return diffxsec_table_eval(sig, mu, E_table, self.SDX)
+        Tlcoeff, Nl = interp_Tlcoeff(self.legendre, Ein_vec)
+        Tlcoeff_interp = 0.5 * (2 * jnp.arange(0, Nl) + 1) * Tlcoeff
+        return diffxsec_legendre_eval(sig, mu, Tlcoeff_interp)
 
 
 # CoM frame differential cross section wrapper fucntion
-def f_dsdO(Ein_vec, mu, material):
-    sig = material.sigma(Ein_vec)
-
-    legendre_dx_spline = material.legendre_dx_spline
-    Tlcoeff_interp, Nl = interp_Tlcoeff(legendre_dx_spline, Ein_vec)
-    Tlcoeff_interp = 0.5 * (2 * np.arange(0, Nl) + 1) * Tlcoeff_interp
-
-    dsdO = diffxsec_legendre_eval(sig, mu, Tlcoeff_interp)
-    return dsdO
+@eqx.filter_jit
+def f_dsdO(Ein_vec, mu, dxs):
+    return dxs(Ein_vec, mu)
 
 
 # Differential cross section even larger wrapper function
-def dsigdOmega(A, Ein, Eout, Ein_vec, muin, muout, vf, material):
+@eqx.filter_jit
+def dsigdOmega(A, Ein, Eout, Ein_vec, muin, muout, vf, dxs):
     mu_CoM = col.muc(A, Ein, Eout, muin, muout, vf)
-    return f_dsdO(Ein_vec, mu_CoM, material)
+    return dxs(Ein_vec, mu_CoM)
 
 
 # Inelastic double differential cross sections
