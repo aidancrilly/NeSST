@@ -1,10 +1,12 @@
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from dataclasses import dataclass, field
 from typing import List
 from warnings import warn
 
+import equinox as eqx
+import jax.numpy as jnp
 import numpy as np
-from scipy.integrate import cumulative_trapezoid as cumtrapz
+from jaxtyping import Array
 from scipy.special import erf
 
 from NeSST.collisions import *
@@ -51,13 +53,13 @@ def get_LOS_attenuation(LOS_materials: List[LOS_material]):
         total_tau = tau_interp_list[0](E)
         for i in range(1, len(tau_interp_list)):
             total_tau += tau_interp_list[i](E)
-        transmission = np.exp(-total_tau)
+        transmission = jnp.exp(-total_tau)
         return transmission
 
     return LOS_attenuation
 
 
-class ProtonScintillationModel(ABC):
+class ProtonScintillationModel(eqx.Module):
     """
     Using equation (3) from
 
@@ -70,6 +72,9 @@ class ProtonScintillationModel(ABC):
     ISSN 0168-9002,
     https://doi.org/10.1016/j.nima.2024.169779.
     """
+
+    Enorm: float
+    normalisation: Array
 
     def __init__(self, Enorm):
         self.Enorm = Enorm
@@ -87,6 +92,8 @@ class ProtonScintillationModel(ABC):
 
 
 class PowerLawScintillationModel(ProtonScintillationModel):
+    p: float
+
     def __init__(self, p, Enorm):
         self.p = p
         super().__init__(Enorm)
@@ -102,11 +109,13 @@ class VerbinskiNLOModel(ProtonScintillationModel):
     Nuclear Instruments and Methods 65.1 (1968): 8-25.
     """
 
+    L_integral_interp: Interpolator1D
+
     def __init__(self, Enorm):
         V_E, V_L = np.loadtxt(data_dir + "VerbinskiLproton.csv", delimiter=",", unpack=True)
-        cumulative_L = cumtrapz(y=np.insert(V_L, 0, 0.0), x=np.insert(V_E, 0, 0.0))
+        cumulative_L = cumulative_trapezoid(jnp.insert(V_L, 0, 0.0), jnp.insert(V_E, 0, 0.0))
         self.L_integral_interp = interpolate_1d(
-            np.insert(V_E, 0, 0.0) * 1e6, np.insert(cumulative_L, 0, 0.0), method="cubic"
+            np.insert(V_E, 0, 0.0) * 1e6, jnp.insert(cumulative_L, 0, 0.0), method="cubic"
         )
         super().__init__(Enorm)
 
@@ -128,12 +137,14 @@ class BirksBetheBlochNLOModel(ProtonScintillationModel):
         dL/dx \propto (dEdx)/(1+kB (dE/dx))
     """
 
+    akB: float
+
     def __init__(self, akB, Enorm):
         self.akB = akB
         super().__init__(Enorm)
 
     def L_integral(self, E):
-        return 0.5 * E**2 - self.akB * E - self.akB * (self.akB + E) * np.log(1.0 + E / self.akB)
+        return 0.5 * E**2 - self.akB * E - self.akB * (self.akB + E) * jnp.log(1.0 + E / self.akB)
 
 
 class BirksBetheNLOModel(ProtonScintillationModel):
@@ -153,6 +164,13 @@ class BirksBetheNLOModel(ProtonScintillationModel):
         dL/dx \propto (dEdx)/(1+kB (dE/dx))
     """
 
+    akB: float
+    excitation_energy: float
+    mp: float
+    Istar: float
+    L_interp: Interpolator1D
+    L_integral_interp: Interpolator1D
+
     def __init__(self, akB, excitation_energy, mp, Enorm, Emin, Emax, NE_interp):
         self.akB = akB
         self.excitation_energy = excitation_energy
@@ -161,21 +179,21 @@ class BirksBetheNLOModel(ProtonScintillationModel):
         self.Istar = excitation_energy * mp / sc.m_e / 4.0
 
         # Precompute tables for the integral and L(E) to speed up the interpolation
-        E_grid = np.linspace(Emin, Emax, NE_interp)
+        E_grid = jnp.linspace(Emin, Emax, NE_interp)
         dLdE_grid = self.dLdE(E_grid)
         # Assume dLdE linear from 0 to Emin
-        E_grid = np.insert(E_grid, 0, 0.0)
-        dLdE_grid = np.insert(dLdE_grid, 0, 0.0)
+        E_grid = jnp.insert(E_grid, 0, 0.0)
+        dLdE_grid = jnp.insert(dLdE_grid, 0, 0.0)
         # Compute integrals and interpolate
-        L_grid = cumtrapz(y=dLdE_grid, x=E_grid, initial=0.0)
+        L_grid = cumulative_trapezoid(dLdE_grid, E_grid, initial=0.0)
         self.L_interp = interpolate_1d(E_grid, L_grid, method="cubic")
-        L_integral_grid = cumtrapz(y=L_grid, x=E_grid, initial=0.0)
+        L_integral_grid = cumulative_trapezoid(L_grid, E_grid, initial=0.0)
         self.L_integral_interp = interpolate_1d(E_grid, L_integral_grid, method="cubic")
         super().__init__(Enorm)
 
     def kB_dEdx(self, Ep):
-        Ep_lim = np.maximum(Ep, np.e * self.Istar)
-        return self.akB / Ep_lim * np.log(Ep_lim / self.Istar)
+        Ep_lim = jnp.maximum(Ep, jnp.e * self.Istar)
+        return self.akB / Ep_lim * jnp.log(Ep_lim / self.Istar)
 
     def dLdE(self, Ep):
         return 1.0 / (1.0 + self.kB_dEdx(Ep))
@@ -203,6 +221,8 @@ class CraunSmithBetheModel(BirksBetheNLOModel):
     which is more convenient for our purposes (dimensionless).
 
     """
+
+    C: float
 
     def __init__(self, C, akB, excitation_energy, mp, Enorm, Emin, Emax, NE_interp):
         self.C = C
@@ -232,7 +252,7 @@ get_CraunSmithBethe_NLO = (
 
 def get_unity_sensitivity():
     def unity_sensitivity(En):
-        return np.ones_like(En)
+        return jnp.ones_like(En)
 
     return unity_sensitivity
 
