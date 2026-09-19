@@ -5,7 +5,6 @@ from warnings import warn
 
 import numpy as np
 from scipy.integrate import cumulative_trapezoid as cumtrapz
-from scipy.ndimage import uniform_filter1d
 from scipy.special import erf
 
 from NeSST.collisions import *
@@ -657,7 +656,7 @@ class nToF:
             # uniform_filter1d is sum-preserving and handles any width.
             # ----------------------------------------------------------
             n_spread = max(1, round(dt_emit[k] / dt_td))
-            spread = uniform_filter1d(shifted, size=n_spread, mode="constant", cval=0.0)
+            spread = uniform_filter1d(shifted, n_spread)
 
             # ----------------------------------------------------------
             # Step 3: integrate over emission time

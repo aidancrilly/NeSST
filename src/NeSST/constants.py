@@ -1,7 +1,10 @@
 import os
 
+import jax
 import numpy as np
 import scipy.constants as sc
+
+jax.config.update("jax_enable_x64", True)
 
 """ Contains some physical constants used throughout the analysis """
 # Scipy constants uses CODATA2018 database
