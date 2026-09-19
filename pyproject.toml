@@ -22,7 +22,10 @@ dependencies = [
     "numpy",
     "scipy",
     "matplotlib",
-    "endf"
+    "endf",
+    "jax",
+    "equinox",
+    "interpax"
 ]
 
 [project.urls]

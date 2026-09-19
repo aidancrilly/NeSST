@@ -1,12 +1,15 @@
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from dataclasses import dataclass, field
+from functools import partial
 from typing import List
 from warnings import warn
 
+import equinox as eqx
+import jax
+import jax.numpy as jnp
 import numpy as np
-from scipy.integrate import cumulative_trapezoid as cumtrapz
-from scipy.ndimage import uniform_filter1d
-from scipy.special import erf
+from jax.scipy.special import erf
+from jaxtyping import Array
 
 from NeSST.collisions import *
 from NeSST.constants import *
@@ -52,13 +55,13 @@ def get_LOS_attenuation(LOS_materials: List[LOS_material]):
         total_tau = tau_interp_list[0](E)
         for i in range(1, len(tau_interp_list)):
             total_tau += tau_interp_list[i](E)
-        transmission = np.exp(-total_tau)
+        transmission = jnp.exp(-total_tau)
         return transmission
 
     return LOS_attenuation
 
 
-class ProtonScintillationModel(ABC):
+class ProtonScintillationModel(eqx.Module):
     """
     Using equation (3) from
 
@@ -71,6 +74,9 @@ class ProtonScintillationModel(ABC):
     ISSN 0168-9002,
     https://doi.org/10.1016/j.nima.2024.169779.
     """
+
+    Enorm: float
+    normalisation: Array
 
     def __init__(self, Enorm):
         self.Enorm = Enorm
@@ -88,6 +94,8 @@ class ProtonScintillationModel(ABC):
 
 
 class PowerLawScintillationModel(ProtonScintillationModel):
+    p: float
+
     def __init__(self, p, Enorm):
         self.p = p
         super().__init__(Enorm)
@@ -103,11 +111,13 @@ class VerbinskiNLOModel(ProtonScintillationModel):
     Nuclear Instruments and Methods 65.1 (1968): 8-25.
     """
 
+    L_integral_interp: Interpolator1D
+
     def __init__(self, Enorm):
         V_E, V_L = np.loadtxt(data_dir + "VerbinskiLproton.csv", delimiter=",", unpack=True)
-        cumulative_L = cumtrapz(y=np.insert(V_L, 0, 0.0), x=np.insert(V_E, 0, 0.0))
+        cumulative_L = cumulative_trapezoid(jnp.insert(V_L, 0, 0.0), jnp.insert(V_E, 0, 0.0))
         self.L_integral_interp = interpolate_1d(
-            np.insert(V_E, 0, 0.0) * 1e6, np.insert(cumulative_L, 0, 0.0), method="cubic"
+            np.insert(V_E, 0, 0.0) * 1e6, jnp.insert(cumulative_L, 0, 0.0), method="cubic"
         )
         super().__init__(Enorm)
 
@@ -129,12 +139,14 @@ class BirksBetheBlochNLOModel(ProtonScintillationModel):
         dL/dx \propto (dEdx)/(1+kB (dE/dx))
     """
 
+    akB: float
+
     def __init__(self, akB, Enorm):
         self.akB = akB
         super().__init__(Enorm)
 
     def L_integral(self, E):
-        return 0.5 * E**2 - self.akB * E - self.akB * (self.akB + E) * np.log(1.0 + E / self.akB)
+        return 0.5 * E**2 - self.akB * E - self.akB * (self.akB + E) * jnp.log(1.0 + E / self.akB)
 
 
 class BirksBetheNLOModel(ProtonScintillationModel):
@@ -154,6 +166,13 @@ class BirksBetheNLOModel(ProtonScintillationModel):
         dL/dx \propto (dEdx)/(1+kB (dE/dx))
     """
 
+    akB: float
+    excitation_energy: float
+    mp: float
+    Istar: float
+    L_interp: Interpolator1D
+    L_integral_interp: Interpolator1D
+
     def __init__(self, akB, excitation_energy, mp, Enorm, Emin, Emax, NE_interp):
         self.akB = akB
         self.excitation_energy = excitation_energy
@@ -162,21 +181,21 @@ class BirksBetheNLOModel(ProtonScintillationModel):
         self.Istar = excitation_energy * mp / sc.m_e / 4.0
 
         # Precompute tables for the integral and L(E) to speed up the interpolation
-        E_grid = np.linspace(Emin, Emax, NE_interp)
+        E_grid = jnp.linspace(Emin, Emax, NE_interp)
         dLdE_grid = self.dLdE(E_grid)
         # Assume dLdE linear from 0 to Emin
-        E_grid = np.insert(E_grid, 0, 0.0)
-        dLdE_grid = np.insert(dLdE_grid, 0, 0.0)
+        E_grid = jnp.insert(E_grid, 0, 0.0)
+        dLdE_grid = jnp.insert(dLdE_grid, 0, 0.0)
         # Compute integrals and interpolate
-        L_grid = cumtrapz(y=dLdE_grid, x=E_grid, initial=0.0)
+        L_grid = cumulative_trapezoid(dLdE_grid, E_grid, initial=0.0)
         self.L_interp = interpolate_1d(E_grid, L_grid, method="cubic")
-        L_integral_grid = cumtrapz(y=L_grid, x=E_grid, initial=0.0)
+        L_integral_grid = cumulative_trapezoid(L_grid, E_grid, initial=0.0)
         self.L_integral_interp = interpolate_1d(E_grid, L_integral_grid, method="cubic")
         super().__init__(Enorm)
 
     def kB_dEdx(self, Ep):
-        Ep_lim = np.maximum(Ep, np.e * self.Istar)
-        return self.akB / Ep_lim * np.log(Ep_lim / self.Istar)
+        Ep_lim = jnp.maximum(Ep, jnp.e * self.Istar)
+        return self.akB / Ep_lim * jnp.log(Ep_lim / self.Istar)
 
     def dLdE(self, Ep):
         return 1.0 / (1.0 + self.kB_dEdx(Ep))
@@ -205,6 +224,8 @@ class CraunSmithBetheModel(BirksBetheNLOModel):
 
     """
 
+    C: float
+
     def __init__(self, C, akB, excitation_energy, mp, Enorm, Emin, Emax, NE_interp):
         self.C = C
         super().__init__(akB, excitation_energy, mp, Enorm, Emin, Emax, NE_interp)
@@ -220,10 +241,8 @@ get_Verbinski_NLO = lambda Enorm=E0_DT: VerbinskiNLOModel(Enorm)
 
 get_BirksBetheBloch_NLO = lambda akB, Enorm=E0_DT: BirksBetheBlochNLOModel(akB, Enorm)
 
-get_BirksBethe_NLO = (
-    lambda akB, excitation_energy, mp=sc.m_p, Enorm=E0_DT, Emin=1e3, Emax=20e6, NE_interp=1000: BirksBetheNLOModel(
-        akB, excitation_energy, mp, Enorm, Emin, Emax, NE_interp
-    )
+get_BirksBethe_NLO = lambda akB, excitation_energy, mp=sc.m_p, Enorm=E0_DT, Emin=1e3, Emax=20e6, NE_interp=1000: (
+    BirksBetheNLOModel(akB, excitation_energy, mp, Enorm, Emin, Emax, NE_interp)
 )
 
 get_CraunSmithBethe_NLO = (
@@ -235,7 +254,7 @@ get_CraunSmithBethe_NLO = (
 
 def get_unity_sensitivity():
     def unity_sensitivity(En):
-        return np.ones_like(En)
+        return jnp.ones_like(En)
 
     return unity_sensitivity
 
@@ -256,17 +275,19 @@ def top_hat(scint_thickness):
     normalised top-hat transit matrix for *this* scintillator thickness.
     """
 
+    @jax.jit
     def _top_hat_matrix(t_detected, t_transit):
         """NxN top-hat response, normalised row-wise."""
-        tt_d, tt_a = np.meshgrid(t_detected, t_detected, indexing="ij")
-        _, tt_t = np.meshgrid(t_detected, t_transit, indexing="ij")
+        tt_d, tt_a = jnp.meshgrid(t_detected, t_detected, indexing="ij")
+        _, tt_t = jnp.meshgrid(t_detected, t_transit, indexing="ij")
 
-        R = np.eye(t_detected.size) + np.heaviside(tt_d - tt_a, 0.0) - np.heaviside(tt_d - (tt_a + tt_t), 1.0)
+        R = jnp.eye(t_detected.size) + jnp.heaviside(tt_d - tt_a, 0.0) - jnp.heaviside(tt_d - (tt_a + tt_t), 1.0)
 
         row_sum = R.sum(axis=1, keepdims=True)
-        row_sum[row_sum == 0] = 1  # avoid div-by-zero
+        row_sum = jnp.where(row_sum == 0, 1.0, row_sum)  # avoid div-by-zero
         return R / row_sum
 
+    @jax.jit
     def base(t_detected, En):
         vn = Ekin_2_beta(En, Mn) * c
         t_transit = scint_thickness / vn
@@ -283,12 +304,12 @@ def inversegaussian_nIRF(
             "Current inverse gaussian nIRF fit coefficients calibrated for 8.79e28 1/m^3 and 10cm only!", RuntimeWarning
         )
 
-    E_range = np.linspace(E_lower, E_upper, NE_interp)
+    E_range = jnp.linspace(E_lower, E_upper, NE_interp)
     sig_H = mat_dict["H"].sigma_tot(E_range)
     sig_C = mat_dict["C12"].sigma_tot(E_range)
 
     def sig_CH(E):
-        sig_barns = CH_ratio * np.interp(E, E_range, sig_C) + (1 - CH_ratio) * np.interp(E, E_range, sig_H)
+        sig_barns = CH_ratio * jnp.interp(E, E_range, sig_C) + (1 - CH_ratio) * jnp.interp(E, E_range, sig_H)
         return sig_barns * 1e-28
 
     def IGtail_nIRF_bestfit_coeffs(En):
@@ -301,77 +322,84 @@ def inversegaussian_nIRF(
         Analysis performed by A. Crilly, 2025
         """
         E_MeV = En / 1e6
-        f = 0.46 * np.ones_like(E_MeV)
-        A = 0.25 * np.ones_like(E_MeV)
+        f = 0.46 * jnp.ones_like(E_MeV)
+        A = 0.25 * jnp.ones_like(E_MeV)
 
-        mu_inverse_ns = [
-            0.45918122858399824,
-            0.6557307634639333,
-            0.8333427566991481,
-            0.8986859864960112,
-            1.146202470556479,
-            1.2341761264319626,
-            1.2686641782526762,
-            2.8986506749332044,
-            1.4799758893943886,
-            2.3823877852359687,
-            3.84910816578929,
-            3.1966724468523355,
-            4.284122083989886,
-            3.452849096581845,
-            4.838842934652534,
-            9.999999999999998,
-        ]
+        mu_inverse_ns = jnp.array(
+            [
+                0.45918122858399824,
+                0.6557307634639333,
+                0.8333427566991481,
+                0.8986859864960112,
+                1.146202470556479,
+                1.2341761264319626,
+                1.2686641782526762,
+                2.8986506749332044,
+                1.4799758893943886,
+                2.3823877852359687,
+                3.84910816578929,
+                3.1966724468523355,
+                4.284122083989886,
+                3.452849096581845,
+                4.838842934652534,
+                9.999999999999998,
+            ]
+        )
 
-        lamb_inverse_ns = [
-            0.7552223497006166,
-            1.0369636485550817,
-            1.1703584280444446,
-            1.4085037422394058,
-            1.445604993812616,
-            1.464511388605816,
-            1.6795667261078404,
-            1.3844968569428273,
-            1.7564016389637123,
-            1.6801129259460668,
-            1.6345197013154014,
-            1.7884346810613823,
-            1.7955059618288889,
-            1.8762280752322453,
-            1.9247350785402442,
-            1.8572104736139436,
-        ]
-        Egrid = 1.0 + np.arange(len(mu_inverse_ns))
+        lamb_inverse_ns = jnp.array(
+            [
+                0.7552223497006166,
+                1.0369636485550817,
+                1.1703584280444446,
+                1.4085037422394058,
+                1.445604993812616,
+                1.464511388605816,
+                1.6795667261078404,
+                1.3844968569428273,
+                1.7564016389637123,
+                1.6801129259460668,
+                1.6345197013154014,
+                1.7884346810613823,
+                1.7955059618288889,
+                1.8762280752322453,
+                1.9247350785402442,
+                1.8572104736139436,
+            ]
+        )
+        Egrid = 1.0 + jnp.arange(len(mu_inverse_ns))
 
-        mu = np.interp(E_MeV, Egrid, mu_inverse_ns) * 1e9
-        lamb = np.interp(E_MeV, Egrid, lamb_inverse_ns) * 1e9
+        mu = jnp.interp(E_MeV, Egrid, mu_inverse_ns) * 1e9
+        lamb = jnp.interp(E_MeV, Egrid, lamb_inverse_ns) * 1e9
         return f, A, mu, lamb
 
+    @jax.jit
     def base(t_detected, En):
         vn = Ekin_2_beta(En, Mn) * c
         t_transit = scint_thickness / vn
 
-        tt_d, tt_a = np.meshgrid(t_detected, t_detected, indexing="ij")
-        _, tt_t = np.meshgrid(t_detected, t_transit, indexing="ij")
+        tt_d, tt_a = jnp.meshgrid(t_detected, t_detected, indexing="ij")
+        _, tt_t = jnp.meshgrid(t_detected, t_transit, indexing="ij")
 
         f, A, mu, lamb = IGtail_nIRF_bestfit_coeffs(En)
 
-        top_hat_mat = np.eye(t_detected.size) + np.heaviside(tt_d - tt_a, 0.0) - np.heaviside(tt_d - (tt_a + tt_t), 1.0)
+        top_hat_mat = (
+            jnp.eye(t_detected.size) + jnp.heaviside(tt_d - tt_a, 0.0) - jnp.heaviside(tt_d - (tt_a + tt_t), 1.0)
+        )
         exp_E_arg = f * vn * ni_scin * sig_CH(En)
-        main_response = np.exp(-(tt_d - tt_a) * exp_E_arg[None, :]) * top_hat_mat
+        main_response = jnp.exp(-(tt_d - tt_a) * exp_E_arg[None, :]) * top_hat_mat
 
         t_shift = tt_d - (tt_a + tt_t)
-        tail_hat = np.heaviside(t_shift, 0.5)
-        t_shift[t_shift < 0.0] = 0.0
+        tail_hat = jnp.heaviside(t_shift, 0.5)
+        t_shift = jnp.where(t_shift < 0.0, 0.0, t_shift)
         prefactor = lamb / mu
         t_coeff = 2 * mu**2 / lamb
-        exp_arg = prefactor[None, :] * (1 - np.sqrt(1 + t_coeff[None, :] * t_shift))
-        tail_response = tail_hat * A[None, :] * np.exp(exp_arg)
+        exp_arg = prefactor[None, :] * (1 - jnp.sqrt(1 + t_coeff[None, :] * t_shift))
+        tail_response = tail_hat * A[None, :] * jnp.exp(exp_arg)
 
         R = main_response + tail_response
 
         row_sum = R.sum(axis=1, keepdims=True)
-        row_sum[row_sum == 0] = 1  # avoid div-by-zero
+        row_sum = jnp.where(row_sum == 0, 1.0, row_sum)  # avoid div-by-zero
         return R / row_sum
 
     return base
@@ -382,13 +410,14 @@ def decaying_gaussian_kernel(FWHM, tau, shift_sigma=2.0):
     sig = FWHM / 2.355
     shift_t = shift_sigma * sig
 
+    @jax.jit
     def kernel(t):
         t_shift = t - shift_t
-        erf_arg = (t_shift - sig**2 / tau) / np.sqrt(2 * sig**2)
-        g = np.exp(-t_shift / tau) * np.exp(0.5 * sig**2 / tau**2)
+        erf_arg = (t_shift - sig**2 / tau) / jnp.sqrt(2 * sig**2)
+        g = jnp.exp(-t_shift / tau) * jnp.exp(0.5 * sig**2 / tau**2)
         g *= (1 + erf(erf_arg)) / (2 * tau)
-        g[t < 0] = 0
-        return g / np.trapezoid(g, x=t)
+        g = jnp.where(t < 0, 0.0, g)
+        return g / jnp.trapezoid(g, x=t)
 
     return kernel
 
@@ -398,9 +427,10 @@ def double_decay_gaussian_kernel(FWHM, taus, frac, shift_sigma=2.0):
     k1 = decaying_gaussian_kernel(FWHM, taus[0], shift_sigma)
     k2 = decaying_gaussian_kernel(FWHM, taus[1], shift_sigma)
 
+    @jax.jit
     def kernel(t):
         out = frac * k1(t) + (1 - frac) * k2(t)
-        return out / np.trapezoid(out, x=t)
+        return out / jnp.trapezoid(out, x=t)
 
     return kernel
 
@@ -409,16 +439,17 @@ def gated_decaying_gaussian_kernel(sig, tau, shift_t, sig_turnon):
     """Exponentially decaying Gaussian with logistic gate."""
 
     def gate(x):
-        g = np.where(x > 0, 2 / (1 + np.exp(-x)) - 1, 0)
+        g = jnp.where(x > 0, 2 / (1 + jnp.exp(-jnp.abs(x))) - 1, 0)
         return g
 
+    @jax.jit
     def kernel(t):
         t_shift = t - shift_t
-        erf_arg = (t_shift - sig**2 / tau) / np.sqrt(2 * sig**2)
-        g = np.exp(-t_shift / tau) * np.exp(0.5 * sig**2 / tau**2)
+        erf_arg = (t_shift - sig**2 / tau) / jnp.sqrt(2 * sig**2)
+        g = jnp.exp(-t_shift / tau) * jnp.exp(0.5 * sig**2 / tau**2)
         g *= (1 + erf(erf_arg)) / (2 * tau)
         g *= gate(t / sig_turnon)
-        return g / np.trapezoid(g, x=t)
+        return g / jnp.trapezoid(g, x=t)
 
     return kernel
 
@@ -428,16 +459,17 @@ def t_gaussian_kernel(FWHM, peak_pos):
     sig = FWHM / 2.355
     mu = (peak_pos**2 - sig**2) / peak_pos
 
+    @jax.jit
     def kernel(t):
-        g = t * np.exp(-0.5 * ((t - mu) / sig) ** 2)
-        g[t < 0] = 0
-        return g / np.trapezoid(g, x=t)
+        g = t * jnp.exp(-0.5 * ((t - mu) / sig) ** 2)
+        g = jnp.where(t < 0, 0.0, g)
+        return g / jnp.trapezoid(g, x=t)
 
     return kernel
 
 
 def delta_kernel():
-    return lambda t: np.array([1.0])
+    return lambda t: jnp.array([1.0])
 
 
 def make_transit_time_IRF(thickness, kernel_fn, base_matrix_fn=None):
@@ -458,36 +490,27 @@ def make_transit_time_IRF(thickness, kernel_fn, base_matrix_fn=None):
     else:
         base_matrix_fn = base_matrix_fn(thickness)
 
+    @jax.jit
     def irf(t_detected, En):
         Rbase = base_matrix_fn(t_detected, En)
         kernel = kernel_fn(t_detected - 0.5 * (t_detected[-1] + t_detected[0]))
 
-        Rconv = np.apply_along_axis(lambda m: np.convolve(m, kernel, mode="same"), axis=0, arr=Rbase)
+        Rconv = jax.vmap(lambda m: jnp.convolve(m, kernel, mode="same"), in_axes=1, out_axes=1)(Rbase)
 
         row_sum = Rconv.sum(axis=1, keepdims=True)
-        row_sum[row_sum == 0] = 1
+        row_sum = jnp.where(row_sum == 0, 1.0, row_sum)
         return Rconv / row_sum
 
     return irf
 
 
-def _roll_zero(arr, n):
-    """Roll a 1-D array by ``n`` positions, filling vacated entries with zero.
+@partial(jax.jit, static_argnums=5)
+def _emission_time_sum(RS, n_lo, frac, n_spread, dt_emit, max_spread):
+    def contribution(col, n, f, size, weight):
+        shifted = (1.0 - f) * roll_zero(col, n) + f * roll_zero(col, n + 1)
+        return dynamic_uniform_filter1d(shifted, size, max_spread) * weight
 
-    Unlike ``np.roll``, this does not wrap around.  Positive ``n`` shifts
-    towards later times; negative ``n`` shifts towards earlier times.
-    Shifts larger than the array length return an all-zero array.
-    """
-    out = np.zeros_like(arr)
-    if n == 0:
-        out[:] = arr
-    elif n > 0:
-        if n < len(arr):
-            out[n:] = arr[:-n]
-    else:  # n < 0
-        if -n < len(arr):
-            out[:n] = arr[-n:]
-    return out
+    return jax.vmap(contribution, in_axes=(1, 0, 0, 0, 0))(RS, n_lo, frac, n_spread, dt_emit).sum(axis=0)
 
 
 class nToF:
@@ -506,9 +529,9 @@ class nToF:
         self.instrument_response_function = instrument_response_function
 
         if detector_normtime is None:
-            self.detector_normtime = np.linspace(normtime_start, normtime_end, normtime_N)
+            self.detector_normtime = jnp.linspace(normtime_start, normtime_end, normtime_N)
         else:
-            self.detector_normtime = detector_normtime
+            self.detector_normtime = jnp.asarray(detector_normtime)
         self.detector_time = self.detector_normtime * self.distance / c
         # Init instrument response values
         self.compute_instrument_response()
@@ -518,17 +541,21 @@ class nToF:
 
         self.dEdt = Jacobian_dEdnorm_t(self.En_det, Mn)
         self.sens = self.sensitivity(self.En_det)
-        self.R = self.instrument_response_function(self.detector_time, self.En_det)
+        self.R = self.instrument_response_function(jnp.asarray(self.detector_time), self.En_det)
+
+    @staticmethod
+    @jax.jit
+    def _dNdt(En_det, dEdt, En, dNdE):
+        return jnp.interp(En_det, En, dNdE, left=0.0, right=0.0) * dEdt
 
     def get_dNdt(self, En, dNdE):
-        dNdE_interp = np.interp(self.En_det, En, dNdE, left=0.0, right=0.0)
-        return dNdE_interp * self.dEdt
+        return self._dNdt(self.En_det, self.dEdt, jnp.asarray(En), jnp.asarray(dNdE))
 
     def get_signal(self, En, dNdE):
         dNdt = self.get_dNdt(En, dNdE)
         time_norm = self.distance / c
 
-        return self.detector_time, self.detector_normtime, np.matmul(self.R, self.sens * dNdt) / time_norm
+        return self.detector_time, self.detector_normtime, jnp.matmul(self.R, self.sens * dNdt) / time_norm
 
     def get_signal_no_IRF(self, En, dNdE):
         dNdt = self.get_dNdt(En, dNdE)
@@ -556,14 +583,14 @@ class nToF:
         dNdt2d : ndarray, shape (N_td, N_temit)
             d²N/dt_norm dt_emit on the detector normtime grid  [1/s/s].
         """
-        En = np.asarray(En)
-        d2NdEdt = np.asarray(d2NdEdt)
+        En = jnp.asarray(En)
+        d2NdEdt = jnp.asarray(d2NdEdt)
 
         if En.ndim != 1:
             raise ValueError("En must be a 1D array of energy bin centres.")
         if En.size < 2:
             raise ValueError("En must contain at least two strictly increasing energy points.")
-        if not np.all(np.diff(En) > 0):
+        if not np.all(np.diff(np.asarray(En)) > 0):
             raise ValueError("En must be strictly increasing.")
         if d2NdEdt.ndim != 2:
             raise ValueError("d2NdEdt must be a 2D array with shape (len(En), N_temit).")
@@ -572,19 +599,19 @@ class nToF:
 
         # Vectorised linear interpolation of all N_temit columns at once.
         # Find the left-neighbour index for each En_det point in En.
-        idx = np.searchsorted(En, self.En_det, side="right") - 1
-        idx = np.clip(idx, 0, len(En) - 2)  # shape (N_td,)
+        idx = jnp.searchsorted(En, self.En_det, side="right") - 1
+        idx = jnp.clip(idx, 0, len(En) - 2)  # shape (N_td,)
 
         dE = En[idx + 1] - En[idx]
         t_w = (self.En_det - En[idx]) / dE  # linear weight in [0,1]
-        t_w = np.clip(t_w, 0.0, 1.0)
+        t_w = jnp.clip(t_w, 0.0, 1.0)
 
         # Broadcast: (N_td,) x (N_temit,) -> (N_td, N_temit)
         d2NdEdt_interp = (1.0 - t_w)[:, None] * d2NdEdt[idx, :] + t_w[:, None] * d2NdEdt[idx + 1, :]
 
         # Zero out points outside the supplied energy range
         out_of_range = (self.En_det < En[0]) | (self.En_det > En[-1])
-        d2NdEdt_interp[out_of_range, :] = 0.0
+        d2NdEdt_interp = jnp.where(out_of_range[:, None], 0.0, d2NdEdt_interp)
 
         return d2NdEdt_interp * self.dEdt[:, None]  # (N_td, N_temit)
 
@@ -621,6 +648,7 @@ class nToF:
         signal : ndarray, shape (N_td,)
         """
         td = np.asarray(self.detector_time)
+        temit = np.asarray(temit)
         if td.ndim != 1 or td.size < 2:
             raise ValueError(
                 "detector_time must be a one-dimensional array with at least "
@@ -631,40 +659,37 @@ class nToF:
         if not np.allclose(td_spacing, td_spacing[0], rtol=1e-8, atol=0.0):
             raise ValueError("detector_time must be uniformly spaced for _apply_emission_time_shift.")
 
-        N_td = len(td)
         dt_td = td_spacing[0]  # uniform detector time bin width (s)
 
         # Trapezoidal bin widths for integration over t_emit
         dt_emit = np.gradient(temit)  # (N_temit,)
 
-        signal = np.zeros(N_td)
+        # ----------------------------------------------------------
+        # Step 1: fractional shift
+        # Decompose t_emit[k]/dt_td into integer + sub-bin fraction.
+        # ----------------------------------------------------------
+        shift_bins = temit / dt_td
+        n_lo = np.floor(shift_bins).astype(int)
+        frac = shift_bins - n_lo  # sub-bin fraction in [0, 1)
 
-        for k in range(len(temit)):
-            col = RS[:, k]
+        # ----------------------------------------------------------
+        # Step 2: top-hat spread over dt_emit[k]
+        # uniform_filter1d is sum-preserving and handles any width.
+        # ----------------------------------------------------------
+        n_spread = np.maximum(1, np.round(dt_emit / dt_td).astype(int))
+        max_spread = int(n_spread.max())
 
-            # ----------------------------------------------------------
-            # Step 1: fractional shift
-            # Decompose t_emit[k]/dt_td into integer + sub-bin fraction.
-            # ----------------------------------------------------------
-            shift_bins = temit[k] / dt_td
-            n_lo = int(np.floor(shift_bins))
-            f = shift_bins - n_lo  # sub-bin fraction in [0, 1)
-
-            shifted = (1.0 - f) * _roll_zero(col, n_lo) + f * _roll_zero(col, n_lo + 1)
-
-            # ----------------------------------------------------------
-            # Step 2: top-hat spread over dt_emit[k]
-            # uniform_filter1d is sum-preserving and handles any width.
-            # ----------------------------------------------------------
-            n_spread = max(1, round(dt_emit[k] / dt_td))
-            spread = uniform_filter1d(shifted, size=n_spread, mode="constant", cval=0.0)
-
-            # ----------------------------------------------------------
-            # Step 3: integrate over emission time
-            # ----------------------------------------------------------
-            signal += spread * dt_emit[k]
-
-        return signal
+        # ----------------------------------------------------------
+        # Step 3: integrate over emission time
+        # ----------------------------------------------------------
+        return _emission_time_sum(
+            jnp.asarray(RS),
+            jnp.asarray(n_lo),
+            jnp.asarray(frac),
+            jnp.asarray(n_spread),
+            jnp.asarray(dt_emit),
+            max_spread,
+        )
 
     def get_time_resolved_signal(self, En, d2NdEdt, temit):
         """Full time-resolved forward model: interpolation → sensitivity →
@@ -696,7 +721,7 @@ class nToF:
             raise ValueError("temit must be sorted in ascending order.")
 
         dNdt2d = self.get_time_resolved_dNdt(En, d2NdEdt)  # (N_td, N_temit)
-        RS = np.matmul(self.R, self.sens[:, None] * dNdt2d)  # (N_td, N_temit)
+        RS = jnp.matmul(self.R, self.sens[:, None] * dNdt2d)  # (N_td, N_temit)
         signal = self._apply_emission_time_shift(RS, temit)
         time_norm = self.distance / c
         return self.detector_time, self.detector_normtime, signal / time_norm
