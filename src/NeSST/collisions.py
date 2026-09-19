@@ -1,4 +1,5 @@
-import numpy as np
+import jax
+import jax.numpy as jnp
 
 from NeSST.constants import *
 
@@ -10,7 +11,7 @@ classical_collisions = None
 
 
 def gamma(beta):
-    return 1.0 / np.sqrt(1 - beta**2)
+    return 1.0 / jnp.sqrt(1 - beta**2)
 
 
 def p(m, beta):
@@ -20,7 +21,7 @@ def p(m, beta):
 
 def E(m, beta):
     mom = p(m, beta)
-    return np.sqrt(m**2 + mom**2)
+    return jnp.sqrt(m**2 + mom**2)
 
 
 def mom_invariant(m1, m2, beta1, beta2, cos):
@@ -28,9 +29,10 @@ def mom_invariant(m1, m2, beta1, beta2, cos):
     E2 = E(m2, beta2)
     p1 = p(m1, beta1)
     p2 = p(m2, beta2)
-    return np.sqrt(m1**2 + m2**2 + 2 * E1 * E2 - 2 * p1 * p2 * cos)
+    return jnp.sqrt(m1**2 + m2**2 + 2 * E1 * E2 - 2 * p1 * p2 * cos)
 
 
+@jax.jit
 def rel_lab_scattering_cosine(m1, m2, beta1, beta2, beta3, cos12, cos23):
     # m3 == m1
     E1 = E(m1, beta1)
@@ -45,6 +47,7 @@ def rel_lab_scattering_cosine(m1, m2, beta1, beta2, beta3, cos12, cos23):
 
 
 # With mu_in == +1, mu_out == mu_0
+@jax.jit
 def rel_mu_out(m1, m2, beta1, beta2, beta3):
     # m3 == m1
     E1 = E(m1, beta1)
@@ -58,6 +61,7 @@ def rel_mu_out(m1, m2, beta1, beta2, beta3):
     return mu
 
 
+@jax.jit
 def rel_CoM_scattering_cosine(m1, m2, beta1, beta2, beta3, cos12, cos23):
     # m3 == m1
     # Lab frame quantities
@@ -70,7 +74,7 @@ def rel_CoM_scattering_cosine(m1, m2, beta1, beta2, beta3, cos12, cos23):
     W = mom_invariant(m1, m2, beta1, beta2, cos12)
     mu0 = (E3 * (E1 + E2) - 0.5 * W**2 - p2 * p3 * cos23 + 0.5 * (m2**2 - m1**2)) / (p1 * p3)
     # CoM quantities
-    betac = np.sqrt(p1**2 + p2**2 + 2 * p1 * p2 * cos12) / (E1 + E2)
+    betac = jnp.sqrt(p1**2 + p2**2 + 2 * p1 * p2 * cos12) / (E1 + E2)
     gammac = gamma(betac)
     beta_p1 = (p1**2 + p2 * p1 * cos12) / (E1 + E2)
     beta_p3 = (p1 * p3 * mu0 + p2 * p3 * cos23) / (E1 + E2)
@@ -81,6 +85,7 @@ def rel_CoM_scattering_cosine(m1, m2, beta1, beta2, beta3, cos12, cos23):
     return muc
 
 
+@jax.jit
 def rel_mucE_jacobian(m1, m2, beta1, beta2, beta3, cos12, cos23):
     # m3 == m1
     # Lab frame quantities
@@ -97,6 +102,7 @@ def rel_mucE_jacobian(m1, m2, beta1, beta2, beta3, cos12, cos23):
 
 
 # Conversions
+@jax.jit
 def Ekin_2_beta(Ek, m):
     x = Ek / m + 1
     beta = gamma_2_beta(x)
@@ -104,7 +110,7 @@ def Ekin_2_beta(Ek, m):
 
 
 def gamma_2_beta(g):
-    return np.sqrt(1.0 - 1.0 / g**2)
+    return jnp.sqrt(1.0 - 1.0 / g**2)
 
 
 def v_2_beta(v):
@@ -115,17 +121,20 @@ def beta_2_normtime(beta):
     return 1.0 / beta
 
 
+@jax.jit
 def beta_2_Ekin(beta, m):
     Etot = E(m, beta)
     return Etot - m
 
 
+@jax.jit
 def Jacobian_dEdnorm_t(E, m):
     beta = Ekin_2_beta(E, m)
     gam = gamma(beta)
     return m * (gam * beta) ** 3
 
 
+@jax.jit
 def velocity_addition_to_Ekin(Ek, m, u):
     beta_frame = u / c
     beta = Ekin_2_beta(Ek, m)
@@ -139,31 +148,35 @@ def velocity_addition_to_Ekin(Ek, m, u):
 ########################
 
 
+@jax.jit
 def cla_lab_scattering_cosine(A, Ein, Eout, muin, muout, vf):
-    vout = sqrtE_2_v * np.sqrt(Eout)
-    vin = sqrtE_2_v * np.sqrt(Ein)
-    mu0_star = 0.5 * ((A + 1) * np.sqrt(Eout / Ein) - (A - 1) * np.sqrt(Ein / Eout))
+    vout = sqrtE_2_v * jnp.sqrt(Eout)
+    vin = sqrtE_2_v * jnp.sqrt(Ein)
+    mu0_star = 0.5 * ((A + 1) * jnp.sqrt(Eout / Ein) - (A - 1) * jnp.sqrt(Ein / Eout))
     return mu0_star + A * vf / vout * muin - A * vf / vin * muout
 
 
 # With mu_in == +1, mu_out == mu_0
+@jax.jit
 def cla_mu_out(A, Ein, Eout, vf):
-    vout = sqrtE_2_v * np.sqrt(Eout)
-    vin = sqrtE_2_v * np.sqrt(Ein)
-    mu0_star = 0.5 * ((A + 1) * np.sqrt(Eout / Ein) - (A - 1) * np.sqrt(Ein / Eout))
+    vout = sqrtE_2_v * jnp.sqrt(Eout)
+    vin = sqrtE_2_v * jnp.sqrt(Ein)
+    mu0_star = 0.5 * ((A + 1) * jnp.sqrt(Eout / Ein) - (A - 1) * jnp.sqrt(Ein / Eout))
     return (mu0_star + A * vf / vout) / (1 + A * vf / vin)
 
 
+@jax.jit
 def cla_CoM_scattering_cosine(A, Ein, Eout, muin, muout, vf):
-    vout = sqrtE_2_v * np.sqrt(Eout)
-    vin = sqrtE_2_v * np.sqrt(Ein)
+    vout = sqrtE_2_v * jnp.sqrt(Eout)
+    vin = sqrtE_2_v * jnp.sqrt(Ein)
     v_ratio = (vout**2 - 2 * vf * vout * muout + vf**2) / (vin**2 - 2 * vf * vin * muin + vf**2)
     return (A + 1) ** 2 * v_ratio / (2 * A) - (A**2 + 1) / (2 * A)
 
 
+@jax.jit
 def cla_mucE_jacobian(A, Ein, Eout, muin, muout, vf):
-    vout = sqrtE_2_v * np.sqrt(Eout)
-    vin = sqrtE_2_v * np.sqrt(Ein)
+    vout = sqrtE_2_v * jnp.sqrt(Eout)
+    vin = sqrtE_2_v * jnp.sqrt(Ein)
     alpha = ((A - 1) / (A + 1)) ** 2
     g0 = 2.0 / ((1 - alpha) * Ein)
     vcorr = (1 - vf * muout / vout) / (1 - 2 * vf * muin / vin + (vf / vin) ** 2)
@@ -177,9 +190,10 @@ def cla_mucE_jacobian(A, Ein, Eout, muin, muout, vf):
 
 # Change in flux due to different relative velocity between target and scatterer
 # |vn-vf|/vn
+@jax.jit
 def flux_change(Ein, muin, vf):
-    vin = sqrtE_2_v * np.sqrt(Ein)
-    del_f = np.sqrt(1 - 2 * vf * muin / vin + (vf / vin) ** 2)
+    vin = sqrtE_2_v * jnp.sqrt(Ein)
+    del_f = jnp.sqrt(1 - 2 * vf * muin / vin + (vf / vin) ** 2)
     return del_f
 
 
