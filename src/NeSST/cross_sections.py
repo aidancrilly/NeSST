@@ -1,4 +1,5 @@
 # Backend of spectral model
+import dataclasses
 from dataclasses import dataclass
 
 import equinox as eqx
@@ -134,10 +135,121 @@ def dsigdOmega(A, Ein, Eout, Ein_vec, muin, muout, vf, material):
     return _dsigdOmega(A, Ein, Eout, Ein_vec, muin, muout, vf, material.sigma, tuple(material.legendre_dx_spline))
 
 
+# Number of points used to resample the LAW7 tables onto the unit base grid
+LAW7_UNIT_BASE_N = 4096
+
+
+class LAW7Table(eqx.Module):
+    """Padded ENDF LAW7 table evaluated with the unit base transform"""
+
+    Ein: Array
+    cos: Array
+    Ncos: Array
+    Emax: Array
+    Eout: Array
+    f: Array
+    g: Array
+    NEin: int = eqx.field(static=True)
+    unit_base: bool = eqx.field(static=True)
+    unit_base_N: int = eqx.field(static=True)
+
+    def _f_interp(self, iE, ic, Eout):
+        x = self.Eout[iE, ic]
+        y = self.f[iE, ic]
+        f = jnp.interp(Eout, x, y, left=0.0, right=0.0)
+        return jnp.where((Eout < x[0]) | (Eout > x[-1]), 0.0, f)
+
+    def _f_unit_base(self, iE, ic, u):
+        Nu = self.unit_base_N
+        row = self.g[iE, ic]
+        t = jnp.clip(u, 0.0, 1.0) * (Nu - 1)
+        k = jnp.clip(jnp.floor(t).astype(jnp.int32), 0, Nu - 2)
+        w = t - k
+        return jnp.where(u > 1.0, 0.0, row[k] * (1.0 - w) + row[k + 1] * w)
+
+    # Interpolate using Unit Base Transform
+    def __call__(self, Ein, mu, Eout):
+        Ein = jnp.asarray(Ein)
+        mu = jnp.asarray(mu)
+        Eout = jnp.asarray(Eout)
+
+        # Find indices
+        # Energies
+        Eidx2 = jnp.clip(jnp.searchsorted(self.Ein, Ein, side="right"), 1, self.NEin - 1)
+        Eidx2 = jnp.where(Ein == self.Ein[-1], self.NEin - 1, Eidx2)
+        Eidx1 = Eidx2 - 1
+
+        # Angles
+        def cos_index(iE):
+            Nc = self.Ncos[iE]
+            c = self.cos[iE]
+            idx2 = jnp.clip(jnp.searchsorted(c, mu, side="right"), 1, Nc - 1)
+            idx2 = jnp.where(mu == +1.0, Nc - 1, idx2)
+            idx2 = jnp.where(mu == -1.0, 1, idx2)
+            return idx2, idx2 - 1
+
+        Cidx12, Cidx11 = cos_index(Eidx1)
+        Cidx22, Cidx21 = cos_index(Eidx2)
+
+        # Find interpolation factors
+        mu_x1 = (mu - self.cos[Eidx1, Cidx11]) / (self.cos[Eidx1, Cidx12] - self.cos[Eidx1, Cidx11])
+        mu_x2 = (mu - self.cos[Eidx2, Cidx21]) / (self.cos[Eidx2, Cidx22] - self.cos[Eidx2, Cidx21])
+        Ein_x = (Ein - self.Ein[Eidx1]) / (self.Ein[Eidx2] - self.Ein[Eidx1])
+
+        x_112 = mu_x1
+        x_111 = 1 - x_112
+        x_222 = mu_x2
+        x_221 = 1 - x_222
+
+        x_2 = Ein_x
+        x_1 = 1 - x_2
+
+        # Unit base transform
+        E_h11 = self.Emax[Eidx1, Cidx11]
+        E_h12 = self.Emax[Eidx1, Cidx12]
+        E_h21 = self.Emax[Eidx2, Cidx21]
+        E_h22 = self.Emax[Eidx2, Cidx22]
+        E_h1 = E_h11 + mu_x1 * (E_h12 - E_h11)
+        E_h2 = E_h21 + mu_x2 * (E_h22 - E_h21)
+        E_high = E_h1 + Ein_x * (E_h2 - E_h1)
+        E_high_safe = jnp.where(E_high == 0.0, 1.0, E_high)
+
+        J_111 = E_h11 / E_high_safe
+        J_112 = E_h12 / E_high_safe
+        J_221 = E_h21 / E_high_safe
+        J_222 = E_h22 / E_high_safe
+
+        # Find unit base transformed energy
+        if self.unit_base:
+            u = Eout / E_high_safe
+            f_111 = self._f_unit_base(Eidx1, Cidx11, u) * J_111
+            f_112 = self._f_unit_base(Eidx1, Cidx12, u) * J_112
+            f_221 = self._f_unit_base(Eidx2, Cidx21, u) * J_221
+            f_222 = self._f_unit_base(Eidx2, Cidx22, u) * J_222
+        else:
+            f_111 = self._f_interp(Eidx1, Cidx11, Eout * J_111) * J_111
+            f_112 = self._f_interp(Eidx1, Cidx12, Eout * J_112) * J_112
+            f_221 = self._f_interp(Eidx2, Cidx21, Eout * J_221) * J_221
+            f_222 = self._f_interp(Eidx2, Cidx22, Eout * J_222) * J_222
+
+        f_1 = x_111 * f_111 + x_112 * f_112
+        f_2 = x_221 * f_221 + x_222 * f_222
+
+        f_ddx = x_1 * f_1 + x_2 * f_2
+
+        f_ddx = jnp.where(E_high == 0.0, 0.0, f_ddx)
+        return jnp.where(Ein < self.Ein[0], 0.0, f_ddx)
+
+
+@eqx.filter_jit
+def _law7_regular_grid(table, xsec_interp, Ein, mu, Eout):
+    return jax.vmap(lambda E: 2.0 * xsec_interp(E) * jax.vmap(lambda m: table(E, m, Eout))(mu))(Ein)
+
+
 # Inelastic double differential cross sections
 # Reads and interpolated data saved in the ENDF interpreted data format
 class doubledifferentialcrosssection_data:
-    def __init__(self, ENDF_LAW6_xsec_data, ENDF_LAW6_dxsec_data):
+    def __init__(self, ENDF_LAW6_xsec_data, ENDF_LAW6_dxsec_data, unit_base=True, unit_base_N=LAW7_UNIT_BASE_N):
         self.xsec_interp = interpolate_1d(
             ENDF_LAW6_xsec_data["E"], ENDF_LAW6_xsec_data["sig"], method="linear", bounds_error=False, fill_value=0.0
         )
@@ -153,7 +265,6 @@ class doubledifferentialcrosssection_data:
         self.Emax_ddx = DDX.Emax
 
         # Pad the ragged (Ein, cos) table onto dense arrays for vectorised evaluation
-        self._Ein = jnp.asarray(self.Ein_ddx)
         max_Ncos = max(self.Ncos_ddx)
         max_NEout = max(self.NEout_ddx.values())
         cos_pad = np.zeros((self.NEin_ddx, max_Ncos))
@@ -170,94 +281,91 @@ class doubledifferentialcrosssection_data:
                 Eout_pad[i, j, :NEo] = self.Eout_ddx[(i, j)]
                 Eout_pad[i, j, NEo:] = self.Eout_ddx[(i, j)][-1]
                 f_pad[i, j, :NEo] = self.f_ddx[(i, j)]
-        self._cos = jnp.asarray(cos_pad)
-        self._Ncos = jnp.asarray(self.Ncos_ddx)
-        self._Emax = jnp.asarray(Emax_pad)
-        self._Eout = jnp.asarray(Eout_pad)
-        self._f = jnp.asarray(f_pad)
 
-    def _f_interp(self, iE, ic, Eout):
-        x = self._Eout[iE, ic]
-        y = self._f[iE, ic]
-        f = jnp.interp(Eout, x, y, left=0.0, right=0.0)
-        return jnp.where((Eout < x[0]) | (Eout > x[-1]), 0.0, f)
+        self.table = LAW7Table(
+            Ein=jnp.asarray(self.Ein_ddx),
+            cos=jnp.asarray(cos_pad),
+            Ncos=jnp.asarray(self.Ncos_ddx),
+            Emax=jnp.asarray(Emax_pad),
+            Eout=jnp.asarray(Eout_pad),
+            f=jnp.asarray(f_pad),
+            g=self.build_unit_base_table(unit_base_N),
+            NEin=self.NEin_ddx,
+            unit_base=unit_base,
+            unit_base_N=unit_base_N,
+        )
 
-    # Interpolate using Unit Base Transform
+    # Resampling each table onto a shared uniform grid in the unit base variable
+    # removes the per-point binary search from the evaluation. Each row is rescaled
+    # so the resampling conserves the integral of the original distribution.
+    def build_unit_base_table(self, Nu):
+        u = np.linspace(0.0, 1.0, Nu)
+        g = np.zeros((self.NEin_ddx, max(self.Ncos_ddx), Nu))
+        for i in range(self.NEin_ddx):
+            for j in range(self.Ncos_ddx[i]):
+                x = np.asarray(self.Eout_ddx[(i, j)])
+                y = np.asarray(self.f_ddx[(i, j)])
+                Emax = self.Emax_ddx[(i, j)]
+                if Emax <= 0.0 or x.size < 2:
+                    continue
+                row = np.interp(u * Emax, x, y, left=0.0, right=0.0)
+                exact_integral = np.trapezoid(y, x)
+                resampled_integral = np.trapezoid(row, u) * Emax
+                if resampled_integral > 0.0:
+                    row = row * (exact_integral / resampled_integral)
+                g[i, j] = row
+        return jnp.asarray(g)
+
+    @property
+    def unit_base(self):
+        return self.table.unit_base
+
+    @unit_base.setter
+    def unit_base(self, flag):
+        self.table = dataclasses.replace(self.table, unit_base=bool(flag))
+
+    @property
+    def unit_base_N(self):
+        return self.table.unit_base_N
+
+    @unit_base_N.setter
+    def unit_base_N(self, Nu):
+        self.table = dataclasses.replace(self.table, g=self.build_unit_base_table(Nu), unit_base_N=Nu)
+
     def interpolate(self, Ein, mu, Eout):
-        Ein = jnp.asarray(Ein)
-        mu = jnp.asarray(mu)
-        Eout = jnp.asarray(Eout)
-
-        # Find indices
-        # Energies
-        Eidx2 = jnp.clip(jnp.searchsorted(self._Ein, Ein, side="right"), 1, self.NEin_ddx - 1)
-        Eidx2 = jnp.where(Ein == self._Ein[-1], self.NEin_ddx - 1, Eidx2)
-        Eidx1 = Eidx2 - 1
-
-        # Angles
-        def cos_index(iE):
-            Nc = self._Ncos[iE]
-            c = self._cos[iE]
-            idx2 = jnp.clip(jnp.searchsorted(c, mu, side="right"), 1, Nc - 1)
-            idx2 = jnp.where(mu == +1.0, Nc - 1, idx2)
-            idx2 = jnp.where(mu == -1.0, 1, idx2)
-            return idx2, idx2 - 1
-
-        Cidx12, Cidx11 = cos_index(Eidx1)
-        Cidx22, Cidx21 = cos_index(Eidx2)
-
-        # Find interpolation factors
-        mu_x1 = (mu - self._cos[Eidx1, Cidx11]) / (self._cos[Eidx1, Cidx12] - self._cos[Eidx1, Cidx11])
-        mu_x2 = (mu - self._cos[Eidx2, Cidx21]) / (self._cos[Eidx2, Cidx22] - self._cos[Eidx2, Cidx21])
-        Ein_x = (Ein - self._Ein[Eidx1]) / (self._Ein[Eidx2] - self._Ein[Eidx1])
-
-        x_112 = mu_x1
-        x_111 = 1 - x_112
-        x_222 = mu_x2
-        x_221 = 1 - x_222
-
-        x_2 = Ein_x
-        x_1 = 1 - x_2
-
-        # Unit base transform
-        E_h11 = self._Emax[Eidx1, Cidx11]
-        E_h12 = self._Emax[Eidx1, Cidx12]
-        E_h21 = self._Emax[Eidx2, Cidx21]
-        E_h22 = self._Emax[Eidx2, Cidx22]
-        E_h1 = E_h11 + mu_x1 * (E_h12 - E_h11)
-        E_h2 = E_h21 + mu_x2 * (E_h22 - E_h21)
-        E_high = E_h1 + Ein_x * (E_h2 - E_h1)
-        E_high_safe = jnp.where(E_high == 0.0, 1.0, E_high)
-
-        J_111 = E_h11 / E_high_safe
-        J_112 = E_h12 / E_high_safe
-        J_221 = E_h21 / E_high_safe
-        J_222 = E_h22 / E_high_safe
-
-        # Find unit base transformed energy
-        f_111 = self._f_interp(Eidx1, Cidx11, Eout * J_111) * J_111
-        f_112 = self._f_interp(Eidx1, Cidx12, Eout * J_112) * J_112
-        f_221 = self._f_interp(Eidx2, Cidx21, Eout * J_221) * J_221
-        f_222 = self._f_interp(Eidx2, Cidx22, Eout * J_222) * J_222
-
-        f_1 = x_111 * f_111 + x_112 * f_112
-        f_2 = x_221 * f_221 + x_222 * f_222
-
-        f_ddx = x_1 * f_1 + x_2 * f_2
-
-        f_ddx = jnp.where(E_high == 0.0, 0.0, f_ddx)
-        return jnp.where(Ein < self._Ein[0], 0.0, f_ddx)
-
-    @eqx.filter_jit
-    def _regular_grid(self, Ein, mu, Eout):
-        return jax.vmap(
-            lambda E: 2.0 * self.xsec_interp(E) * jax.vmap(lambda m: self.interpolate(E, m, Eout))(mu),
-        )(Ein)
+        return self.table(Ein, mu, Eout)
 
     def regular_grid(self, Ein, mu, Eout):
         self.rgrid_shape = (Ein.shape[0], mu.shape[0], Eout.shape[0])
-        grid = self._regular_grid(jnp.asarray(Ein), jnp.asarray(mu), jnp.asarray(Eout))
+        grid = _law7_regular_grid(self.table, self.xsec_interp, jnp.asarray(Ein), jnp.asarray(mu), jnp.asarray(Eout))
         self.rgrid = grid.reshape(self.rgrid_shape)
+
+
+@eqx.filter_jit
+def _law6_regular_grid(kernel, xsec_interp, Ein, mu, Eout):
+    Ei, Mm, Eo = jnp.meshgrid(Ein, mu, Eout, indexing="ij")
+    return 2.0 * xsec_interp(Ei) * kernel(Ei, Mm, Eo)
+
+
+class LAW6Kernel(eqx.Module):
+    """Analytic ENDF LAW6 phase space double differential cross section"""
+
+    A_i: float
+    A_e: float
+    A_t: float
+    A_p: float
+    A_tot: float
+    Q_react: float
+
+    def __call__(self, Ein, mu, Eout):
+        E_star = Ein * self.A_i * self.A_e / (self.A_t + self.A_i) ** 2
+        E_a = self.A_t * Ein / (self.A_p + self.A_t) + self.Q_react
+        E_max = (self.A_tot - 1.0) * E_a / self.A_tot
+        C3 = 4.0 / (jnp.pi * E_max * E_max)
+        square_bracket_term = E_max - (E_star + Eout - 2 * mu * jnp.sqrt(E_star * Eout))
+        square_bracket_term = jnp.where(square_bracket_term < 0.0, 0.0, square_bracket_term)
+        f_ddx = C3 * jnp.sqrt(Eout * square_bracket_term)
+        return f_ddx
 
 
 class doubledifferentialcrosssection_LAW6:
@@ -271,21 +379,14 @@ class doubledifferentialcrosssection_LAW6:
         self.xsec_interp = interpolate_1d(
             ENDF_LAW6_xsec_data["E"], ENDF_LAW6_xsec_data["sig"], method="linear", bounds_error=False, fill_value=0.0
         )
+        self.kernel = LAW6Kernel(
+            A_i=self.A_i, A_e=self.A_e, A_t=self.A_t, A_p=self.A_p, A_tot=self.A_tot, Q_react=self.Q_react
+        )
 
     def ddx(self, Ein, mu, Eout):
-        E_star = Ein * self.A_i * self.A_e / (self.A_t + self.A_i) ** 2
-        E_a = self.A_t * Ein / (self.A_p + self.A_t) + self.Q_react
-        E_max = (self.A_tot - 1.0) * E_a / self.A_tot
-        C3 = 4.0 / (jnp.pi * E_max * E_max)
-        square_bracket_term = E_max - (E_star + Eout - 2 * mu * jnp.sqrt(E_star * Eout))
-        square_bracket_term = jnp.where(square_bracket_term < 0.0, 0.0, square_bracket_term)
-        f_ddx = C3 * jnp.sqrt(Eout * square_bracket_term)
-        return f_ddx
-
-    @eqx.filter_jit
-    def _regular_grid(self, Ein, mu, Eout):
-        Ei, Mm, Eo = jnp.meshgrid(Ein, mu, Eout, indexing="ij")
-        return 2.0 * self.xsec_interp(Ei) * self.ddx(Ei, Mm, Eo)
+        return self.kernel(Ein, mu, Eout)
 
     def regular_grid(self, Ein, mu, Eout):
-        self.rgrid = self._regular_grid(jnp.asarray(Ein), jnp.asarray(mu), jnp.asarray(Eout))
+        self.rgrid = _law6_regular_grid(
+            self.kernel, self.xsec_interp, jnp.asarray(Ein), jnp.asarray(mu), jnp.asarray(Eout)
+        )
