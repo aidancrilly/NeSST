@@ -300,3 +300,49 @@ def test_ion_kinematic_bin_average_shape_and_normalisation():
     _, dEout = energy_bin_edges(jnp.asarray(Eout))
     total = np.asarray(jnp.sum(M[:, 1, :] * dEout[:, None], axis=0))
     assert np.abs(total / _sigma_bar(mat, Ein) - 1).max() < 1.0e-3
+
+
+def _nested_grid(nbins, lo=0.5e6, hi=15.5e6):
+    """Bin centres of a uniform grid, so a refinement nests exactly"""
+    edges = np.linspace(lo, hi, nbins + 1)
+    return 0.5 * (edges[:-1] + edges[1:])
+
+
+def _scatter_twice(mat, E, bin_average, N=1):
+    """Feed the scattered spectrum back through the kernel, as a double scatter
+    calculation does when Ein and Eout are the same grid"""
+    if bin_average:
+        kernel = sm.BinAveragedElasticScatterKernel(A=mat.A, dxs=mat.elastic_dxs, N=N)
+    else:
+        kernel = mat.elastic_kernel
+    _, K = kernel(jnp.asarray(E), jnp.asarray(E))
+
+    if bin_average:
+        _, w = energy_bin_edges(jnp.asarray(E))
+        step = lambda y: jnp.sum(K * y[None, :] * w[None, :], axis=1)
+    else:
+        step = lambda y: jnp.trapezoid(K * y[None, :], jnp.asarray(E), axis=1)
+
+    # A narrow primary well inside the grid; the shape is all that matters here
+    I_E = jnp.exp(-((jnp.asarray(E) - 14.03e6) ** 2) / (2.0 * (1.1e5**2)))
+    return np.asarray(step(step(I_E)))
+
+
+def test_double_scatter_error_does_not_compound(carbon):
+    """Point sampling the band edges rings, and feeding the spectrum back through
+    the kernel smears that ringing across the whole spectrum.  Bin averaging must
+    not degrade from one pass to two the way point sampling does."""
+    NE, refine = 100, 6
+    reference = _scatter_twice(carbon, _nested_grid(NE * refine), True, N=2)
+    reference = reference.reshape(NE, refine).mean(axis=1)
+
+    E = _nested_grid(NE)
+    mask = reference > reference.max() * 1e-4
+
+    def rel(y):
+        return np.linalg.norm((y - reference)[mask]) / np.linalg.norm(reference[mask])
+
+    pointwise = rel(_scatter_twice(carbon, E, False))
+    bin_averaged = rel(_scatter_twice(carbon, E, True, N=4))
+
+    assert bin_averaged < pointwise / 5.0
