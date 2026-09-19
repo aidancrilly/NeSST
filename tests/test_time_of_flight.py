@@ -1,10 +1,9 @@
 import NeSST as nst
 import numpy as np
 import pytest
-import pytest_cases
 
 
-@pytest_cases.fixture(
+@pytest.fixture(
     params=[
         "delta",
         "decaying_gaussian",
@@ -73,7 +72,7 @@ def test_inversegaussian_nIRF_normalisation():
     assert np.isclose(integral_signal, 1.0, rtol=1e-2)
 
 
-@pytest_cases.fixture(
+@pytest.fixture(
     params=[
         "get_power_law_NLO",
         "get_Verbinski_NLO",
