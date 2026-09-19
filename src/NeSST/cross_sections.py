@@ -43,8 +43,7 @@ def diffxsec_table_eval(sig, mu, E, table):
     interp = griddata(table.points, table.values, xi, rescale=True).reshape(mu.shape)
 
     ans = sig * interp
-    ans[np.abs(mu) > 1.0] = 0.0
-    return ans
+    return np.where(np.abs(mu) > 1.0, 0.0, ans)
 
 
 # Interpolate the legendre coefficients (a_l) of the differential cross section
@@ -70,8 +69,7 @@ def diffxsec_legendre_eval(sig, mu, coeff):
         ans = sig * legval(mu, c[:, None, :], tensor=False)
     elif len(mu.shape) == 3:
         ans = sig * legval(mu, c[:, None, None, :], tensor=False)
-    ans[np.abs(mu) > 1.0] = 0.0
-    return ans
+    return np.where(np.abs(mu) > 1.0, 0.0, ans)
 
 
 # CoM frame differential cross section wrapper fucntion
@@ -222,7 +220,7 @@ class doubledifferentialcrosssection_LAW6:
         E_max = (self.A_tot - 1.0) * E_a / self.A_tot
         C3 = 4.0 / (np.pi * E_max * E_max)
         square_bracket_term = E_max - (E_star + Eout - 2 * mu * np.sqrt(E_star * Eout))
-        square_bracket_term[square_bracket_term < 0.0] = 0.0
+        square_bracket_term = np.where(square_bracket_term < 0.0, 0.0, square_bracket_term)
         f_ddx = C3 * np.sqrt(Eout * square_bracket_term)
         return f_ddx
 
