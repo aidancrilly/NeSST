@@ -344,21 +344,31 @@ def neutron_velocity_addition(Ek, u):
 #######################################
 
 
-def init_DT_scatter(Eout: npt.NDArray, Ein: npt.NDArray):
+def init_DT_scatter(Eout: npt.NDArray, Ein: npt.NDArray, bin_average: bool = False, bin_average_N: int = 1):
     """Initialise the scattering matrices for D and T materials
 
     Args:
         Ein (numpy.array): the array on incoming neutron energies
         Eout (numpy.array): the array on outgoing neutron energies
+        bin_average (bool): average the elastic and inelastic kernels over the
+            energy bins, integrating the kinematic band edges exactly, instead
+            of sampling them at the grid points
+        bin_average_N (int): midpoint sub-divisions per bin when bin averaging
 
     """
     mat_dict["D"].init_energy_grids(Eout, Ein)
     mat_dict["T"].init_energy_grids(Eout, Ein)
-    mat_dict["D"].init_station_scatter_matrices()
-    mat_dict["T"].init_station_scatter_matrices()
+    mat_dict["D"].init_station_scatter_matrices(bin_average=bin_average, bin_average_N=bin_average_N)
+    mat_dict["T"].init_station_scatter_matrices(bin_average=bin_average, bin_average_N=bin_average_N)
 
 
-def init_DT_ionkin_scatter(varr: npt.NDArray, nT: bool = False, nD: bool = False):
+def init_DT_ionkin_scatter(
+    varr: npt.NDArray,
+    nT: bool = False,
+    nD: bool = False,
+    bin_average: bool = False,
+    bin_average_N: int = 1,
+):
     """Initialise the scattering matrices including the effect of ion
     velocities in the kinematics
 
@@ -374,12 +384,12 @@ def init_DT_ionkin_scatter(varr: npt.NDArray, nT: bool = False, nD: bool = False
         if mat_dict["T"].Ein is None:
             print("nT - Needed to initialise energy grids - see init_DT_scatter")
         else:
-            mat_dict["T"].full_scattering_matrix_create(varr)
+            mat_dict["T"].full_scattering_matrix_create(varr, bin_average=bin_average, bin_average_N=bin_average_N)
     if nD:
         if mat_dict["D"].Ein is None:
             print("nD - Needed to initialise energy grids - see init_DT_scatter")
         else:
-            mat_dict["D"].full_scattering_matrix_create(varr)
+            mat_dict["D"].full_scattering_matrix_create(varr, bin_average=bin_average, bin_average_N=bin_average_N)
 
 
 def calc_DT_ionkin_primspec_rhoL_integral(I_E: npt.NDArray, rhoL_func=None, nT: bool = False, nD: bool = False):
@@ -402,7 +412,13 @@ def calc_DT_ionkin_primspec_rhoL_integral(I_E: npt.NDArray, rhoL_func=None, nT: 
 ###################################
 # General material initialisation #
 ###################################
-def init_mat_scatter(Eout: npt.NDArray, Ein: npt.NDArray, mat_label: str):
+def init_mat_scatter(
+    Eout: npt.NDArray,
+    Ein: npt.NDArray,
+    mat_label: str,
+    bin_average: bool = False,
+    bin_average_N: int = 1,
+):
     """General material version of init_DT_scatter as specified by material label
 
     N.B. the mat_lable must match those in available_materials_dict
@@ -416,7 +432,7 @@ def init_mat_scatter(Eout: npt.NDArray, Ein: npt.NDArray, mat_label: str):
     """
     mat = mat_dict[mat_label]
     mat.init_energy_grids(Eout, Ein)
-    mat.init_station_scatter_matrices()
+    mat.init_station_scatter_matrices(bin_average=bin_average, bin_average_N=bin_average_N)
     return mat
 
 

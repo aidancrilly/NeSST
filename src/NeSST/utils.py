@@ -183,3 +183,55 @@ def legval(x, c):
         P_prev, P_curr = P_curr, ((2 * i - 1) * x * P_curr - (i - 1) * P_prev) / i
         total = total + c[i] * P_curr
     return total
+
+
+def Ecentres_to_edges(Ecentres):
+    """Convert energy bin centres to edges.
+
+    The outer half-widths are mirrored from the first and last interval, so a
+    uniform grid of centres maps back to exactly the grid it came from.
+
+    Args:
+        Ecentres (array): energy bin centres in eV
+
+    Returns:
+        tuple: energy bin edges in eV, and the bin widths
+    """
+    Ecentres = jnp.asarray(Ecentres)
+    inner = 0.5 * (Ecentres[:-1] + Ecentres[1:])
+    first = Ecentres[0] - 0.5 * (Ecentres[1] - Ecentres[0])
+    last = Ecentres[-1] + 0.5 * (Ecentres[-1] - Ecentres[-2])
+    Eedges = jnp.concatenate([first[None], inner, last[None]])
+    return Eedges, jnp.diff(Eedges)
+
+
+def energy_bin_edges(Ecentres):
+    """Ecentres_to_edges for an energy grid, with the mirrored outer edges kept
+    non-negative.  A first bin whose mirrored edge falls below zero can only
+    mean a bin starting at zero; letting it through gives negative energies.
+
+    Args:
+        Ecentres (array): energy bin centres in eV
+
+    Returns:
+        tuple: energy bin edges in eV, and the bin widths
+    """
+    Eedges, _ = Ecentres_to_edges(Ecentres)
+    Eedges = jnp.clip(Eedges, 0.0, None)
+    return Eedges, jnp.diff(Eedges)
+
+
+def midpoint_subnodes(lo, hi, N):
+    """Midpoint rule sub-division of a set of bins.
+
+    Args:
+        lo (array): lower bin edges, any shape
+        hi (array): upper bin edges, same shape as lo
+        N (int): number of sub-divisions per bin
+
+    Returns:
+        tuple: nodes with a trailing axis of length N, and the sub-node width
+    """
+    width = (hi - lo) / N
+    offsets = jnp.arange(N) + 0.5
+    return lo[..., None] + offsets * width[..., None], width

@@ -1,6 +1,8 @@
 import numpy as np
 import numpy.typing as npt
 
+from NeSST.utils import Ecentres_to_edges  # noqa: F401  re-exported, this used to live here
+
 try:
     import dress
 
@@ -12,23 +14,6 @@ except ImportError:
 def _check_dress():
     if not dress_available:
         raise ImportError("pydress is required for DRESS interface functions. Install it with: pip install pydress")
-
-
-def Ecentres_to_edges(Ecentres: npt.NDArray) -> npt.NDArray:
-    """Convert energy bin centres to edges.
-
-    Args:
-        Ecentres (numpy.array): energy bin centres in eV
-
-    Returns:
-        numpy.array: energy bin edges in eV
-    """
-    dE = np.diff(Ecentres)
-    Eedges = np.empty(len(Ecentres) + 1)
-    Eedges[1:-1] = 0.5 * (Ecentres[:-1] + Ecentres[1:])
-    Eedges[0] = Ecentres[0] - 0.5 * dE[0]
-    Eedges[-1] = Ecentres[-1] + 0.5 * dE[-1]
-    return Eedges, Eedges[1:] - Eedges[:-1]
 
 
 def DRESS_DT_spec(T_D: float, T_T: float, n_samples: int, bins: npt.NDArray) -> npt.NDArray:
@@ -44,6 +29,7 @@ def DRESS_DT_spec(T_D: float, T_T: float, n_samples: int, bins: npt.NDArray) -> 
         numpy.array: normalised DT spectrum (1/eV) on the bin centres
     """
     _check_dress()
+    bins = np.asarray(bins)
     T_D_keV = T_D / 1e3
     T_T_keV = T_T / 1e3
     bins_keV = bins / 1e3
@@ -93,6 +79,7 @@ def DRESS_DD_spec(T: float, n_samples: int, bins: npt.NDArray) -> npt.NDArray:
         numpy.array: normalised DD spectrum (1/eV) on the bin centres
     """
     _check_dress()
+    bins = np.asarray(bins)
     T_keV = T / 1e3
     bins_keV = bins / 1e3
 
