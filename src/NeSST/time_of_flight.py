@@ -219,10 +219,8 @@ get_Verbinski_NLO = lambda Enorm=E0_DT: VerbinskiNLOModel(Enorm)
 
 get_BirksBetheBloch_NLO = lambda akB, Enorm=E0_DT: BirksBetheBlochNLOModel(akB, Enorm)
 
-get_BirksBethe_NLO = (
-    lambda akB, excitation_energy, mp=sc.m_p, Enorm=E0_DT, Emin=1e3, Emax=20e6, NE_interp=1000: BirksBetheNLOModel(
-        akB, excitation_energy, mp, Enorm, Emin, Emax, NE_interp
-    )
+get_BirksBethe_NLO = lambda akB, excitation_energy, mp=sc.m_p, Enorm=E0_DT, Emin=1e3, Emax=20e6, NE_interp=1000: (
+    BirksBetheNLOModel(akB, excitation_energy, mp, Enorm, Emin, Emax, NE_interp)
 )
 
 get_CraunSmithBethe_NLO = (
