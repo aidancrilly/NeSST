@@ -1,7 +1,9 @@
 # Backend of spectral model
 
+import equinox as eqx
 import jax.numpy as jnp
 import numpy as np
+from jaxtyping import Array
 
 import NeSST.collisions as col
 import NeSST.cross_sections as xs
@@ -23,6 +25,89 @@ A_Be = MBe / Mn
 
 def unity(x):
     return jnp.ones_like(x)
+
+
+class ElasticScatterKernel(eqx.Module):
+    """Stationary ion elastic scattering matrices"""
+
+    A: float
+    dxs: xs.DifferentialCrossSection
+
+    @eqx.filter_jit
+    def __call__(self, Ein, Eout):
+        Ei, Eo = jnp.meshgrid(Ein, Eout)
+        muc = col.muc(self.A, Ei, Eo, 1.0, -1.0, 0.0)
+        mu0 = col.mu_out(self.A, Ei, Eo, 0.0)
+        dsdO = self.dxs(Ein, muc, Ei)
+        jacob = col.g(self.A, Ei, Eo, 1.0, -1.0, 0.0)
+        return mu0, jacob * dsdO
+
+
+class InelasticScatterKernel(eqx.Module):
+    """Stationary ion inelastic scattering matrices, classical kinematics"""
+
+    A: float
+    Q: float
+    dxs: xs.DifferentialCrossSection
+
+    @eqx.filter_jit
+    def __call__(self, Ein, Eout):
+        Ei, Eo = jnp.meshgrid(Ein, Eout)
+        kin_a2 = (self.A / (self.A + 1)) ** 2 * (1.0 + (self.A + 1) / self.A * self.Q / Ei)
+        kin_a2_safe = jnp.where(kin_a2 < 0.0, 1.0, kin_a2)
+        kin_a = jnp.sqrt(kin_a2_safe)
+        kin_b = 1.0 / (self.A + 1)
+        muc = ((Eo / Ei) - kin_a**2 - kin_b**2) / (2 * kin_a * kin_b)
+        mu0 = (jnp.sqrt(Eo / Ei) - (kin_a**2 - kin_b**2) * jnp.sqrt(Ei / Eo)) / (2 * kin_b)
+        mu0 = jnp.where(kin_a2 < 0.0, 0.0, mu0)
+
+        dsdO = self.dxs(Ein, muc, Ei)
+
+        jacob = 2.0 / ((kin_a + kin_b) ** 2 - (kin_a - kin_b) ** 2) / Ei
+        dNdEdmu = jnp.where(kin_a2 < 0.0, 0.0, jacob * dsdO)
+        return mu0, dNdEdmu
+
+
+class IonKinematicScatterKernel(eqx.Module):
+    """Elastic scattering matrices including the scattering ion velocity"""
+
+    A: float
+    dxs: xs.DifferentialCrossSection
+
+    @eqx.filter_jit
+    def __call__(self, Eout, vvec, Ein):
+        Eo, vv, Ei = jnp.meshgrid(Eout, vvec, Ein, indexing="ij")
+        # Reverse velocity direction so +ve vf is implosion
+        # Choose this way round so vf is +ve if shell coming TOWARDS detector
+        vf = -vv
+        muout = col.mu_out(self.A, Ei, Eo, vf)
+        jacob = col.g(self.A, Ei, Eo, 1.0, muout, vf)
+        flux_change = col.flux_change(Ei, 1.0, vf)
+        # Integrand of Eq. 8 in A. J. Crilly 2019 PoP
+        dsigdOmega = xs.dsigdOmega(self.A, Ei, Eo, Ein, 1.0, muout, vf, self.dxs)
+        return flux_change * dsigdOmega * jacob, muout
+
+
+@eqx.filter_jit
+def dNdE_integral(dNdEdmu, rhoL_asym, I_E, Ein):
+    return jnp.trapezoid(dNdEdmu * rhoL_asym * I_E[None, :], Ein, axis=1)
+
+
+@eqx.filter_jit
+def n2n_dNdE_integral(rgrid, rhoL_asym, n2n_mu, I_E, Ein):
+    grid_dNdE = jnp.trapezoid(rgrid * rhoL_asym[None, :, None], n2n_mu, axis=1)
+    return jnp.trapezoid(I_E[:, None] * grid_dNdE, Ein, axis=0)
+
+
+@eqx.filter_jit
+def primspec_integral(rhoL_mult, full_scattering_M, I_E, Ein):
+    return jnp.trapezoid(rhoL_mult * full_scattering_M * I_E[None, None, :], Ein, axis=2)
+
+
+@eqx.filter_jit
+def gaussian_velocity_integral(M_prim, vvec, vbar, dv):
+    gauss = jnp.exp(-((vvec - vbar) ** 2) / 2.0 / (dv**2)) / jnp.sqrt(2 * jnp.pi) / dv
+    return jnp.trapezoid(M_prim * gauss[None, :], vvec, axis=1)
 
 
 class material_data:
@@ -77,6 +162,8 @@ class material_data:
                 legendre=tuple(self.legendre_dx_spline) if self.elastic_legendre else None,
                 SDX=self.elastic_SDX_table,
             )
+            self.elastic_kernel = ElasticScatterKernel(A=self.A, dxs=self.elastic_dxs)
+            self.ion_kinematic_kernel = IonKinematicScatterKernel(A=self.A, dxs=self.elastic_dxs)
 
         self.l_n2n = ENDF_data["interactions"].n2n
         if ENDF_data["interactions"].n2n:
@@ -94,6 +181,7 @@ class material_data:
             self.inelastic_legendre = []
             self.legendre_idx_spline = []
             self.inelastic_SDX_table = []
+            self.inelastic_kernel = []
 
             for i_inelastic in range(self.n_inelastic):
                 xsec_table = ENDF_data[f"inelastic_xsec_n{i_inelastic + 1}"]
@@ -125,6 +213,20 @@ class material_data:
                     self.legendre_idx_spline.append(None)
                     self.inelastic_SDX_table.append(dxsec_table["SDX"])
 
+                self.inelastic_kernel.append(
+                    InelasticScatterKernel(
+                        A=self.A,
+                        Q=self.inelasticQ[i_inelastic],
+                        dxs=xs.DifferentialCrossSection(
+                            sigma=self.isigma[i_inelastic],
+                            legendre=tuple(self.legendre_idx_spline[i_inelastic])
+                            if self.inelastic_legendre[i_inelastic]
+                            else None,
+                            SDX=self.inelastic_SDX_table[i_inelastic],
+                        ),
+                    )
+                )
+
         self.Ein = None
         self.Eout = None
         self.vvec = None
@@ -146,52 +248,20 @@ class material_data:
 
     # Elastic scatter matrix
     def init_station_elastic_scatter(self):
-        Ei, Eo = np.meshgrid(self.Ein, self.Eout)
-        muc = col.muc(self.A, Ei, Eo, 1.0, -1.0, 0.0)
-        sigma = self.sigma(self.Ein)
-        self.elastic_mu0 = col.mu_out(self.A, Ei, Eo, 0.0)
-        if self.elastic_legendre:
-            Tlcoeff, Nl = xs.interp_Tlcoeff(self.legendre_dx_spline, self.Ein)
-            Tlcoeff_interp = 0.5 * (2 * np.arange(0, Nl) + 1) * Tlcoeff
-            dsdO = xs.diffxsec_legendre_eval(sigma, muc, Tlcoeff_interp)
-        else:
-            dsdO = xs.diffxsec_table_eval(sigma, muc, Ei, self.elastic_SDX_table)
-        jacob = col.g(self.A, Ei, Eo, 1.0, -1.0, 0.0)
-        self.elastic_dNdEdmu = jacob * dsdO
+        self.elastic_mu0, self.elastic_dNdEdmu = self.elastic_kernel(jnp.asarray(self.Ein), jnp.asarray(self.Eout))
 
     # Inelastic scatter matrix
     # Currently uses classical kinematics
     def init_station_inelastic_scatter(self):
-        Ei, Eo = np.meshgrid(self.Ein, self.Eout)
         self.inelastic_mu0 = []
         self.inelastic_dNdEdmu = []
         for i_inelastic in range(self.n_inelastic):
-            kin_a2 = (self.A / (self.A + 1)) ** 2 * (1.0 + (self.A + 1) / self.A * self.inelasticQ[i_inelastic] / Ei)
-            kin_a2_safe = np.where(kin_a2 < 0.0, 1.0, kin_a2)
-            kin_a = np.sqrt(kin_a2_safe)
-            kin_b = 1.0 / (self.A + 1)
-            muc = ((Eo / Ei) - kin_a**2 - kin_b**2) / (2 * kin_a * kin_b)
-            sigma = self.isigma[i_inelastic](self.Ein)
-            inelastic_mu0 = (np.sqrt(Eo / Ei) - (kin_a**2 - kin_b**2) * np.sqrt(Ei / Eo)) / (2 * kin_b)
-            inelastic_mu0 = np.where(kin_a2 < 0.0, 0.0, inelastic_mu0)
-            self.inelastic_mu0.append(inelastic_mu0)
-
-            if self.inelastic_legendre[i_inelastic]:
-                Tlcoeff, Nl = xs.interp_Tlcoeff(self.legendre_idx_spline[i_inelastic], self.Ein)
-                Tlcoeff_interp = 0.5 * (2 * np.arange(0, Nl) + 1) * Tlcoeff
-                dsdO = xs.diffxsec_legendre_eval(sigma, muc, Tlcoeff_interp)
-            else:
-                dsdO = xs.diffxsec_table_eval(sigma, muc, Ei, self.inelastic_SDX_table[i_inelastic])
-
-            jacob = 2.0 / ((kin_a + kin_b) ** 2 - (kin_a - kin_b) ** 2) / Ei
-            inelastic_dNdEdmu = jacob * dsdO
-
-            inelastic_dNdEdmu = np.where(kin_a2 < 0.0, 0.0, inelastic_dNdEdmu)
-
-            self.inelastic_dNdEdmu.append(inelastic_dNdEdmu)
+            mu0, dNdEdmu = self.inelastic_kernel[i_inelastic](jnp.asarray(self.Ein), jnp.asarray(self.Eout))
+            self.inelastic_mu0.append(mu0)
+            self.inelastic_dNdEdmu.append(dNdEdmu)
 
     def init_n2n_ddxs(self, Nm=100):
-        self.n2n_mu = np.linspace(-1.0, 1.0, Nm)
+        self.n2n_mu = jnp.linspace(-1.0, 1.0, Nm)
         self.n2n_ddx.regular_grid(self.Ein, self.n2n_mu, self.Eout)
 
     def calc_dNdEs(self, I_E, rhoL_func):
@@ -204,20 +274,19 @@ class material_data:
     # Spectrum produced by scattering of incoming isotropic neutron source I_E with normalised areal density asymmetry rhoR_asym_func
     def calc_station_elastic_dNdE(self, I_E, rhoL_func):
         rhoL_asym = rhoL_func(self.elastic_mu0)
-        self.elastic_dNdE = np.trapezoid(self.elastic_dNdEdmu * rhoL_asym * I_E[None, :], self.Ein, axis=1)
+        self.elastic_dNdE = dNdE_integral(self.elastic_dNdEdmu, rhoL_asym, I_E, jnp.asarray(self.Ein))
 
     def calc_station_inelastic_dNdE(self, I_E, rhoL_func):
-        self.inelastic_dNdE = np.zeros(self.Eout.shape[0])
+        self.inelastic_dNdE = jnp.zeros(self.Eout.shape[0])
         for i_inelastic in range(self.n_inelastic):
             rhoL_asym = rhoL_func(self.inelastic_mu0[i_inelastic])
-            self.inelastic_dNdE += np.trapezoid(
-                self.inelastic_dNdEdmu[i_inelastic] * rhoL_asym * I_E[None, :], self.Ein, axis=1
+            self.inelastic_dNdE += dNdE_integral(
+                self.inelastic_dNdEdmu[i_inelastic], rhoL_asym, I_E, jnp.asarray(self.Ein)
             )
 
     def calc_n2n_dNdE(self, I_E, rhoL_func):
         rhoL_asym = rhoL_func(self.n2n_mu)
-        grid_dNdE = np.trapezoid(self.n2n_ddx.rgrid * rhoL_asym[None, :, None], self.n2n_mu, axis=1)
-        self.n2n_dNdE = np.trapezoid(I_E[:, None] * grid_dNdE, self.Ein, axis=0)
+        self.n2n_dNdE = n2n_dNdE_integral(self.n2n_ddx.rgrid, rhoL_asym, self.n2n_mu, I_E, jnp.asarray(self.Ein))
 
     def rhoR_2_A1s(self, rhoR):
         mbar = self.A * Mn_kg
@@ -247,19 +316,10 @@ class material_data:
     def full_scattering_matrix_create(self, vvec):
         self.vvec = vvec
 
-        Eo, vv, Ei = np.meshgrid(self.Eout, vvec, self.Ein, indexing="ij")
-        # Reverse velocity direction so +ve vf is implosion
-        # Choose this way round so vf is +ve if shell coming TOWARDS detector
-        vf = -vv
-        muout = col.mu_out(self.A, Ei, Eo, vf)
-        jacob = col.g(self.A, Ei, Eo, 1.0, muout, vf)
-        flux_change = col.flux_change(Ei, 1.0, vf)
-        # Integrand of Eq. 8 in A. J. Crilly 2019 PoP
-        dsigdOmega = xs.dsigdOmega(self.A, Ei, Eo, self.Ein, 1.0, muout, vf, self.elastic_dxs)
-
-        self.full_scattering_M = flux_change * dsigdOmega * jacob
-        self.full_scattering_mu = muout
-        self.rhoL_mult = np.ones_like(muout)
+        self.full_scattering_M, self.full_scattering_mu = self.ion_kinematic_kernel(
+            jnp.asarray(self.Eout), jnp.asarray(vvec), jnp.asarray(self.Ein)
+        )
+        self.rhoL_mult = jnp.ones_like(self.full_scattering_mu)
 
     def scattering_matrix_apply_rhoLfunc(self, rhoL_func):
         # Find multiplicative factor for areal density asymmetries
@@ -267,22 +327,37 @@ class material_data:
 
     # Integrate out the birth neutron spectrum
     def matrix_primspec_int(self, I_E):
-        self.M_prim = np.trapezoid(self.rhoL_mult * self.full_scattering_M * I_E[None, None, :], self.Ein, axis=2)
+        self.M_prim = primspec_integral(self.rhoL_mult, self.full_scattering_M, I_E, jnp.asarray(self.Ein))
 
     # Integrate out the ion velocity distribution
     def matrix_interpolate_gaussian(self, E, vbar, dv):
         # Integrating over Gaussian
-        gauss = np.exp(-((self.vvec - vbar) ** 2) / 2.0 / (dv**2)) / np.sqrt(2 * np.pi) / dv
-        M_v = np.trapezoid(self.M_prim * gauss[None, :], self.vvec, axis=1)
+        M_v = gaussian_velocity_integral(self.M_prim, jnp.asarray(self.vvec), jnp.asarray(vbar), jnp.asarray(dv))
         # Interpolate to energy points E
         interp = interpolate_1d(self.Eout, M_v, method="linear", bounds_error=False)
         return interp(E)
 
 
-class TT_spectrum_model:
+class TT_spectrum_model(eqx.Module):
+    TT_spec_E: Array
+    CoM_E_Brune: Array
+    CoM_spec_Brune: Array
+    CoM_E_Eriksson: Array
+    CoM_spec_Eriksson: Array
+    CoM_E_GJ_low: Array
+    CoM_spec_GJ_low: Array
+    CoM_E_GJ_mid: Array
+    CoM_spec_GJ_mid: Array
+    CoM_E_GJ_high: Array
+    CoM_spec_GJ_high: Array
+    TT_reac_McNally_spline: Interpolator1D
+    TT_reac_Hale_spline: Interpolator1D
+    available_spectrum_models: list = eqx.field(static=True)
+    available_reactivity_models: list = eqx.field(static=True)
+
     def __init__(self, NE=500):
         # Create TT spectrum model grid
-        self.TT_spec_E = np.linspace(1e-10, 12e6, NE)  # eV
+        self.TT_spec_E = jnp.linspace(1e-10, 12e6, NE)  # eV
 
         # Load TT spectra (CoM frame)
         self.CoM_E_Brune, self.CoM_spec_Brune = self._load_and_normalise_CoM_spec(data_dir + "TT/BruneFit16_36keV.txt")
@@ -333,8 +408,8 @@ class TT_spectrum_model:
         # Shift 0
         E[0] += 1e-10
         # Interpolate to model energy grid
-        spec = np.interp(self.TT_spec_E, E, spec, left=0.0, right=0.0)
-        spec = spec / np.trapezoid(spec, self.TT_spec_E)  # Normalise to 1
+        spec = jnp.interp(self.TT_spec_E, E, spec, left=0.0, right=0.0)
+        spec = spec / jnp.trapezoid(spec, self.TT_spec_E)  # Normalise to 1
         return self.TT_spec_E, spec
 
     def reac(self, Ti, model):
@@ -346,11 +421,11 @@ class TT_spectrum_model:
         elif model == "CaughlanFowler":
             T9 = (Ti_kev * sc.e * 1e3 / sc.k) / 1e9
             T9_1third = T9 ** (1.0 / 3.0)
-            poly = np.polyval([0.225, 0.148, -0.272, -0.455, 0.086, 1.0], T9_1third)
-            return (1 / sc.N_A) * 1.67e3 / T9 ** (2.0 / 3.0) * np.exp(-4.872 / T9 ** (1.0 / 3.0)) * poly
+            poly = jnp.polyval(jnp.array([0.225, 0.148, -0.272, -0.455, 0.086, 1.0]), T9_1third)
+            return (1 / sc.N_A) * 1.67e3 / T9 ** (2.0 / 3.0) * jnp.exp(-4.872 / T9 ** (1.0 / 3.0)) * poly
         else:
             print(f"WARNING: TT model name ({model}) not recognised! Default to 0")
-            return np.zeros_like(Ti)
+            return jnp.zeros_like(Ti)
 
     def spec(self, E, Ti, model):
         if model == "Brune":
@@ -365,20 +440,20 @@ class TT_spectrum_model:
             CoM_E, CoM_spec = self.CoM_E_Eriksson, self.CoM_spec_Eriksson
         else:
             print(f"WARNING: TT spectrum model name ({model}) not recognised! Default to 0")
-            return np.zeros_like(E)
+            return jnp.zeros_like(E)
 
-        sqrt_Ep1 = np.sqrt(E)
-        sqrt_Ep2 = np.sqrt(CoM_E)
+        sqrt_Ep1 = jnp.sqrt(E)
+        sqrt_Ep2 = jnp.sqrt(CoM_E)
         dE = CoM_E[1] - CoM_E[0]
 
         # Following Appelbe HEDP 2016
         # https://www.sciencedirect.com/science/article/pii/S1574181816300295
-        int_factor = np.exp(-2 * Mt / Mn / Ti * (sqrt_Ep1[:, None] - sqrt_Ep2[None, :]) ** 2) / sqrt_Ep2[None, :] * dE
-        norm_factor = 0.5 * np.sqrt((2 * Mt / Mn / Ti) / np.pi)
+        int_factor = jnp.exp(-2 * Mt / Mn / Ti * (sqrt_Ep1[:, None] - sqrt_Ep2[None, :]) ** 2) / sqrt_Ep2[None, :] * dE
+        norm_factor = 0.5 * jnp.sqrt((2 * Mt / Mn / Ti) / jnp.pi)
 
         integrand = norm_factor * int_factor * CoM_spec[None, :]
 
-        broadened_spec = np.sum(integrand, axis=1)
+        broadened_spec = jnp.sum(integrand, axis=1)
 
         return broadened_spec
 
@@ -403,22 +478,22 @@ def reac_DT(Ti, model="BoschHale"):
         # Taken from Atzeni & Meyer ter Vehn page 19
         C1 = 643.41e-22
         xi = 6.6610 * Ti_kev ** (-0.333333333)
-        eta = 1 - np.polyval([-0.10675e-3, 4.6064e-3, 15.136e-3, 0.0e0], Ti_kev) / np.polyval(
-            [0.01366e-3, 13.5e-3, 75.189e-3, 1.0e0], Ti_kev
+        eta = 1 - jnp.polyval(jnp.array([-0.10675e-3, 4.6064e-3, 15.136e-3, 0.0e0]), Ti_kev) / jnp.polyval(
+            jnp.array([0.01366e-3, 13.5e-3, 75.189e-3, 1.0e0]), Ti_kev
         )
-        return C1 * eta ** (-0.833333333) * xi**2 * np.exp(-3 * eta ** (0.333333333) * xi)
+        return C1 * eta ** (-0.833333333) * xi**2 * jnp.exp(-3 * eta ** (0.333333333) * xi)
     elif model == "CaughlanFowler":
         T9 = (Ti_kev * sc.e * 1e3 / sc.k) / 1e9
         T9_1third = T9 ** (1.0 / 3.0)
-        poly = np.polyval([17.24, 10.52, 1.16, 1.80, 0.092, 1.0], T9_1third)
+        poly = jnp.polyval(jnp.array([17.24, 10.52, 1.16, 1.80, 0.092, 1.0]), T9_1third)
         return (
             (1 / sc.N_A)
-            * (8.09e4 * poly * np.exp(-4.524 / T9 ** (1.0 / 3.0) - (T9 / 0.120) ** 2) + 8.73e2 * np.exp(-0.523 / T9))
+            * (8.09e4 * poly * jnp.exp(-4.524 / T9 ** (1.0 / 3.0) - (T9 / 0.120) ** 2) + 8.73e2 * jnp.exp(-0.523 / T9))
             / T9 ** (2.0 / 3.0)
         )
     else:
         print(f"WARNING: DT model name ({model}) not recognised! Default to 0")
-        return np.zeros_like(Ti)
+        return jnp.zeros_like(Ti)
 
 
 def reac_DD(Ti, model="BoschHale"):
@@ -428,16 +503,18 @@ def reac_DD(Ti, model="BoschHale"):
         # Taken from Atzeni & Meyer ter Vehn page 19
         C1 = 3.5741e-22
         xi = 6.2696 * Ti_kev ** (-0.333333333)
-        eta = 1 - np.polyval([5.8577e-3, 0.0e0], Ti_kev) / np.polyval([-0.002964e-3, 7.6822e-3, 1.0e0], Ti_kev)
-        return C1 * eta ** (-0.833333333) * xi**2 * np.exp(-3 * eta ** (0.333333333) * xi)
+        eta = 1 - jnp.polyval(jnp.array([5.8577e-3, 0.0e0]), Ti_kev) / jnp.polyval(
+            jnp.array([-0.002964e-3, 7.6822e-3, 1.0e0]), Ti_kev
+        )
+        return C1 * eta ** (-0.833333333) * xi**2 * jnp.exp(-3 * eta ** (0.333333333) * xi)
     elif model == "CaughlanFowler":
         T9 = (Ti_kev * sc.e * 1e3 / sc.k) / 1e9
         T9_1third = T9 ** (1.0 / 3.0)
-        poly = np.polyval([-0.071, -0.041, 0.6, 0.876, 0.098, 1.0], T9_1third)
-        return (1 / sc.N_A) * 3.97e2 / T9 ** (2.0 / 3.0) * np.exp(-4.258 / T9 ** (1.0 / 3.0)) * poly
+        poly = jnp.polyval(jnp.array([-0.071, -0.041, 0.6, 0.876, 0.098, 1.0]), T9_1third)
+        return (1 / sc.N_A) * 3.97e2 / T9 ** (2.0 / 3.0) * jnp.exp(-4.258 / T9 ** (1.0 / 3.0)) * poly
     else:
         print(f"WARNING: DD model name ({model}) not recognised! Default to 0")
-        return np.zeros_like(Ti)
+        return jnp.zeros_like(Ti)
 
 
 def reac_TT(Ti, model="Hale"):
