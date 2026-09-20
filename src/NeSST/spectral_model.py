@@ -213,8 +213,7 @@ class BinAveragedIonKinematicScatterKernel(eqx.Module):
     """Ion velocity elastic scattering kernel bin averaged over the energy grids
 
     The jacobian carries the moving target flux correction, so it is no longer
-    the slope of mu_c and is kept explicit.  N = 1 is recommended here to avoid
-    a large memory cost.
+    the slope of mu_c and is kept explicit.
     """
 
     A: float
