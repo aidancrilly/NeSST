@@ -10,12 +10,14 @@ from os.path import basename
 
 import numpy as np
 import numpy.typing as npt
+from scipy.special import erf
 
 import NeSST.collisions as col
 import NeSST.spectral_model as sm
 
 # NeSST libraries
 from NeSST.constants import *
+from NeSST.utils import Ecentres_to_edges
 
 # Global variable defaults
 col.classical_collisions = False
@@ -59,23 +61,30 @@ def initialise_material_data(label):
 
 
 # Gaussian "Brysk"
-def QBrysk(Ein: npt.NDArray, mean: float, variance: float) -> npt.NDArray:
+def QBrysk(Ein: npt.NDArray, mean: float, variance: float, bin_average: bool = False) -> npt.NDArray:
     """Calculates the primary spectrum with a Brysk shape i.e. Gaussian
     Args:
         Ein (numpy.array) : array of energy values on which to compute spectrum
         mean (float) : mean of spectrum
         variance (float): variance of spectraum
+        bin_average (bool) : average over the energy bins rather than sampling
+            the shape at the bin centres
 
     Returns:
         numpy.array : array with Gaussian spectrum on array Ein
 
     """
-    spec = np.exp(-((Ein - mean) ** 2) / 2.0 / variance) / np.sqrt(2 * np.pi * variance)
+    if bin_average:
+        edges, widths = Ecentres_to_edges(Ein)
+        cdf = 0.5 * (1.0 + erf((np.asarray(edges) - mean) / np.sqrt(2.0 * variance)))
+        spec = np.diff(cdf) / np.asarray(widths)
+    else:
+        spec = np.exp(-((Ein - mean) ** 2) / 2.0 / variance) / np.sqrt(2 * np.pi * variance)
     return spec
 
 
 # Ballabio
-def QBallabio(Ein: npt.NDArray, mean: float, variance: float) -> npt.NDArray:
+def QBallabio(Ein: npt.NDArray, mean: float, variance: float, bin_average: bool = False) -> npt.NDArray:
     """Calculates the primary spectrum with a Ballabio shape i.e. modified Gaussian
     See equations 44 - 46 of Ballabio et al.
 
@@ -83,6 +92,8 @@ def QBallabio(Ein: npt.NDArray, mean: float, variance: float) -> npt.NDArray:
         Ein (numpy.array) : array of energy values on which to compute spectrum
         mean (float) : mean of spectrum
         variance (float): variance of spectraum
+        bin_average (bool) : average over the energy bins rather than sampling
+            the shape at the bin centres
 
     Returns:
         numpy.array : array with modified Gaussian spectrum on array Ein
@@ -92,7 +103,16 @@ def QBallabio(Ein: npt.NDArray, mean: float, variance: float) -> npt.NDArray:
     Ebar = mean * np.sqrt(common_factor)
     sig2 = 4.0 / 3.0 * mean**2 * (np.sqrt(common_factor) - common_factor)
     norm = np.sqrt(2 * np.pi * variance)
-    spec = np.exp(-2.0 * Ebar * (np.sqrt(Ein) - np.sqrt(Ebar)) ** 2 / sig2) / norm
+    if bin_average:
+        edges, widths = Ecentres_to_edges(Ein)
+        u = np.sqrt(np.asarray(edges))
+        u0 = np.sqrt(Ebar)
+        k = 2.0 * Ebar / sig2
+        # antiderivative of 2 u exp(-k (u - u0)^2) with respect to u
+        antideriv = -np.exp(-k * (u - u0) ** 2) / k + u0 * np.sqrt(np.pi / k) * erf(np.sqrt(k) * (u - u0))
+        spec = np.diff(antideriv) / np.asarray(widths) / norm
+    else:
+        spec = np.exp(-2.0 * Ebar * (np.sqrt(Ein) - np.sqrt(Ebar)) ** 2 / sig2) / norm
     return spec
 
 
@@ -108,7 +128,7 @@ def QDress_DT(Ein: npt.NDArray, T_D: float, T_T: float | None = None, n_samples:
     Returns:
         numpy.array: normalised DT spectrum (1/eV) evaluated at the bin centres of Ein
     """
-    from NeSST.dress_interface import DRESS_DT_spec, Ecentres_to_edges
+    from NeSST.dress_interface import DRESS_DT_spec
 
     if T_T is None:
         T_T = T_D
@@ -128,7 +148,7 @@ def QDress_DD(Ein: npt.NDArray, Tion: float, n_samples: int = int(1e6)) -> npt.N
     Returns:
         numpy.array: normalised DD spectrum (1/eV) evaluated at the bin centres of Ein
     """
-    from NeSST.dress_interface import DRESS_DD_spec, Ecentres_to_edges
+    from NeSST.dress_interface import DRESS_DD_spec
 
     Ebins, _ = Ecentres_to_edges(Ein)
     return DRESS_DD_spec(Tion, n_samples, Ebins)
@@ -344,42 +364,48 @@ def neutron_velocity_addition(Ek, u):
 #######################################
 
 
-def init_DT_scatter(Eout: npt.NDArray, Ein: npt.NDArray):
+def init_DT_scatter(Eout: npt.NDArray, Ein: npt.NDArray, bin_average: bool = False, bin_average_N: int = 1):
     """Initialise the scattering matrices for D and T materials
 
     Args:
         Ein (numpy.array): the array on incoming neutron energies
         Eout (numpy.array): the array on outgoing neutron energies
+        bin_average (bool): average the elastic and inelastic kernels over the
+            energy bins, integrating the kinematic band edges exactly, instead
+            of sampling them at the grid points
+        bin_average_N (int): midpoint sub-divisions per bin when bin averaging
 
     """
     mat_dict["D"].init_energy_grids(Eout, Ein)
     mat_dict["T"].init_energy_grids(Eout, Ein)
-    mat_dict["D"].init_station_scatter_matrices()
-    mat_dict["T"].init_station_scatter_matrices()
+    mat_dict["D"].init_station_scatter_matrices(bin_average=bin_average, bin_average_N=bin_average_N)
+    mat_dict["T"].init_station_scatter_matrices(bin_average=bin_average, bin_average_N=bin_average_N)
 
 
-def init_DT_ionkin_scatter(varr: npt.NDArray, nT: bool = False, nD: bool = False):
+def init_DT_ionkin_scatter(varr: npt.NDArray, nT: bool = False, nD: bool = False, bin_average_N: int = 1):
     """Initialise the scattering matrices including the effect of ion
     velocities in the kinematics
 
     N.B. the static ion scattering matrices must already be calculated
-    e.g. by calling init_DT_scatter
+    e.g. by calling init_DT_scatter, which is also where bin averaging is
+    switched on or off for both the static and the ion velocity kernels
 
     Args:
         Ein (numpy.array): the array on incoming neutron energies
         Eout (numpy.array): the array on outgoing neutron energies
+        bin_average_N (int): midpoint sub-divisions per bin when bin averaging
 
     """
     if nT:
         if mat_dict["T"].Ein is None:
             print("nT - Needed to initialise energy grids - see init_DT_scatter")
         else:
-            mat_dict["T"].full_scattering_matrix_create(varr)
+            mat_dict["T"].full_scattering_matrix_create(varr, bin_average_N=bin_average_N)
     if nD:
         if mat_dict["D"].Ein is None:
             print("nD - Needed to initialise energy grids - see init_DT_scatter")
         else:
-            mat_dict["D"].full_scattering_matrix_create(varr)
+            mat_dict["D"].full_scattering_matrix_create(varr, bin_average_N=bin_average_N)
 
 
 def calc_DT_ionkin_primspec_rhoL_integral(I_E: npt.NDArray, rhoL_func=None, nT: bool = False, nD: bool = False):
@@ -402,7 +428,13 @@ def calc_DT_ionkin_primspec_rhoL_integral(I_E: npt.NDArray, rhoL_func=None, nT: 
 ###################################
 # General material initialisation #
 ###################################
-def init_mat_scatter(Eout: npt.NDArray, Ein: npt.NDArray, mat_label: str):
+def init_mat_scatter(
+    Eout: npt.NDArray,
+    Ein: npt.NDArray,
+    mat_label: str,
+    bin_average: bool = False,
+    bin_average_N: int = 1,
+):
     """General material version of init_DT_scatter as specified by material label
 
     N.B. the mat_lable must match those in available_materials_dict
@@ -416,7 +448,7 @@ def init_mat_scatter(Eout: npt.NDArray, Ein: npt.NDArray, mat_label: str):
     """
     mat = mat_dict[mat_label]
     mat.init_energy_grids(Eout, Ein)
-    mat.init_station_scatter_matrices()
+    mat.init_station_scatter_matrices(bin_average=bin_average, bin_average_N=bin_average_N)
     return mat
 
 

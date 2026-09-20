@@ -1,6 +1,7 @@
 # Backend of spectral model
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import numpy as np
 from jaxtyping import Array
@@ -43,6 +44,107 @@ class ElasticScatterKernel(eqx.Module):
         return mu0, jacob * dsdO
 
 
+def affine_muc_band(muc_of_Eout, Eprobe):
+    """Linearise the centre of mass cosine in Eout and invert it for mu_c = +-1
+
+    mu_c is affine in Eout at fixed incoming energy, so this transform gives the
+    Heaviside limits to integrate over the energy bins.  With the incoming
+    neutron collinear with the target the boost axis lies along it, so the
+    centre of mass scattering angle is the angle to that axis and the boost
+    back gives Eout = gamma_c (E* + beta_c p* mu_c), linear in mu_c.
+
+    The slope here is the total derivative along the locus where the outgoing
+    lab direction follows Eout.  For a target at rest that is also the slowing
+    down kernel col.g, but for a moving target col.g is the partial derivative
+    at fixed outgoing lab direction and the two differ by a few percent.
+
+    Args:
+        muc_of_Eout (callable): mu_c as a function of outgoing energy alone
+        Eprobe (array): outgoing energies to linearise about
+
+    Returns:
+        tuple: the lower and upper band limits, and the value and slope of the
+        linearisation about Eprobe
+    """
+    mu_probe, slope = jax.jvp(muc_of_Eout, (Eprobe,), (jnp.ones_like(Eprobe),))
+    edge_a = Eprobe + (1.0 - mu_probe) / slope
+    edge_b = Eprobe + (-1.0 - mu_probe) / slope
+    return jnp.minimum(edge_a, edge_b), jnp.maximum(edge_a, edge_b), mu_probe, slope
+
+
+class BinAveragedScatterKernel(eqx.Module):
+    """Shared machinery for the bin averaged kernels
+
+    A subclass says where the kinematically allowed band is and what the
+    integrand is on it; averaging that over the energy bins is the same work
+    whatever the interaction.
+    """
+
+    A: float
+    dxs: xs.DifferentialCrossSection
+    # Midpoint sub-divisions per bin; the band edges are exact even at N = 1
+    N: int = eqx.field(static=True)
+
+    def sub_nodes(self, Ein):
+        """Incoming sub-nodes, flattened so the incoming axis is last as the
+        differential cross section evaluators expect"""
+        Ein_edges, _ = energy_bin_edges(Ein)
+        Ei_sub, _ = midpoint_subnodes(Ein_edges[:-1], Ein_edges[1:], self.N)
+        return Ei_sub.reshape(-1)
+
+    def average(self, Eout, band_lo, band_hi, integrand, row_elements):
+        """Average integrand over each outgoing bin's overlap with the band
+
+        Args:
+            Eout (array): outgoing bin centres
+            band_lo, band_hi (array): kinematic band limits per incoming sub-node
+            integrand (callable): the integrand at an outgoing energy
+            row_elements (int): elements one outgoing row works over
+
+        Returns:
+            array: the bin averaged kernel, outgoing axis first
+        """
+        Eout_edges, dEout = energy_bin_edges(Eout)
+
+        def outgoing_bin(edges):
+            lo = jnp.maximum(edges[0], band_lo)
+            hi = jnp.minimum(edges[1], band_hi)
+            sub_width = (hi - lo) / self.N
+            weight = jnp.where(hi > lo, sub_width, 0.0)
+
+            def sub_node(k):
+                return integrand(lo + (k + 0.5) * sub_width)
+
+            inner = integrate_sub_nodes(sub_node, jnp.zeros_like(lo), self.N) * weight
+            return inner.reshape(*inner.shape[:-1], -1, self.N).mean(axis=-1)
+
+        out = map_outgoing_bins(outgoing_bin, Eout_edges, row_elements, self.N)
+        return out / dEout.reshape(-1, *([1] * (out.ndim - 1)))
+
+
+class BinAveragedElasticScatterKernel(BinAveragedScatterKernel):
+    """Elastic scattering kernel bin averaged over the energy grids"""
+
+    @eqx.filter_jit
+    def __call__(self, Ein, Eout):
+        Ev = self.sub_nodes(Ein)
+        # Linearise about forward scatter, where mu_c is exactly +1
+        band_lo, band_hi, mu_probe, slope = affine_muc_band(lambda Eo: col.muc(self.A, Ev, Eo, 1.0, -1.0, 0.0), Ev)
+
+        def integrand(Eo):
+            # Evaluating mu_c through the linearisation rather than col.muc also
+            # avoids its removable singularity at Eout -> 0 for A = 1
+            return slope * self.dxs(Ev, mu_probe + slope * (Eo - Ev), Ev)
+
+        dNdEdmu = self.average(Eout, band_lo, band_hi, integrand, Ev.shape[0])
+
+        # mu0 stays a point value per bin pair, clipped so that an edge bin with
+        # a non-zero bin average cannot hand rhoL_func an out of range cosine
+        Ei, Eo = jnp.meshgrid(Ein, Eout)
+        mu0 = jnp.clip(col.mu_out(self.A, Ei, Eo, 0.0), -1.0, 1.0)
+        return mu0, dNdEdmu
+
+
 class InelasticScatterKernel(eqx.Module):
     """Stationary ion inelastic scattering matrices, classical kinematics"""
 
@@ -68,6 +170,39 @@ class InelasticScatterKernel(eqx.Module):
         return mu0, dNdEdmu
 
 
+class BinAveragedInelasticScatterKernel(BinAveragedScatterKernel):
+    """Inelastic scattering kernel bin averaged over the energy grids"""
+
+    Q: float
+
+    @eqx.filter_jit
+    def __call__(self, Ein, Eout):
+        Ev = self.sub_nodes(Ein)
+        kin_a2 = (self.A / (self.A + 1)) ** 2 * (1.0 + (self.A + 1) / self.A * self.Q / Ev)
+        open_channel = kin_a2 >= 0.0
+        kin_a = jnp.sqrt(jnp.where(open_channel, kin_a2, 1.0))
+        kin_b = 1.0 / (self.A + 1)
+
+        band_lo, band_hi, mu_probe, slope = affine_muc_band(
+            lambda Eo: ((Eo / Ev) - kin_a**2 - kin_b**2) / (2 * kin_a * kin_b), Ev
+        )
+        # Below threshold the band is empty rather than kinematically bounded
+        band_lo = jnp.where(open_channel, band_lo, 0.0)
+        band_hi = jnp.where(open_channel, band_hi, 0.0)
+
+        def integrand(Eo):
+            return jnp.where(open_channel, slope * self.dxs(Ev, mu_probe + slope * (Eo - Ev), Ev), 0.0)
+
+        dNdEdmu = self.average(Eout, band_lo, band_hi, integrand, Ev.shape[0])
+
+        Ei, Eo = jnp.meshgrid(Ein, Eout)
+        kin_a2_c = (self.A / (self.A + 1)) ** 2 * (1.0 + (self.A + 1) / self.A * self.Q / Ei)
+        kin_a_c = jnp.sqrt(jnp.where(kin_a2_c < 0.0, 1.0, kin_a2_c))
+        mu0 = (jnp.sqrt(Eo / Ei) - (kin_a_c**2 - kin_b**2) * jnp.sqrt(Ei / Eo)) / (2 * kin_b)
+        mu0 = jnp.where(kin_a2_c < 0.0, 0.0, jnp.clip(mu0, -1.0, 1.0))
+        return mu0, dNdEdmu
+
+
 class IonKinematicScatterKernel(eqx.Module):
     """Elastic scattering matrices including the scattering ion velocity"""
 
@@ -88,9 +223,50 @@ class IonKinematicScatterKernel(eqx.Module):
         return flux_change * dsigdOmega * jacob, muout
 
 
+class BinAveragedIonKinematicScatterKernel(BinAveragedScatterKernel):
+    """Ion velocity elastic scattering kernel bin averaged over the energy grids
+
+    col.g is the jacobian the double differential cross section needs, the
+    partial derivative of mu_c at fixed outgoing lab direction, which is not the
+    slope of the linearisation once the target moves.  So the linearisation
+    supplies the band limits only and the jacobian stays explicit.
+    """
+
+    @eqx.filter_jit
+    def __call__(self, Eout, vvec, Ein):
+        Ev = self.sub_nodes(Ein)
+        n_v, n_in = vvec.shape[0], Ev.shape[0]
+        # Reverse velocity direction so +ve vf is implosion
+        vf = -vvec[:, None]
+        Eiv = jnp.broadcast_to(Ev[None, :], (n_v, n_in))
+
+        band_lo, band_hi, _, _ = affine_muc_band(
+            lambda Eo: col.muc(self.A, Eiv, Eo, 1.0, col.mu_out(self.A, Eiv, Eo, vf), vf), Eiv
+        )
+        flux_change = col.flux_change(Ev, 1.0, vf)
+
+        def integrand(Eo):
+            muout = col.mu_out(self.A, Ev, Eo, vf)
+            jacob = col.g(self.A, Ev, Eo, 1.0, muout, vf)
+            # Integrand of Eq. 8 in A. J. Crilly 2019 PoP
+            dsigdOmega = xs.dsigdOmega(self.A, Ev, Eo, Ev, 1.0, muout, vf, self.dxs)
+            return flux_change * dsigdOmega * jacob
+
+        M = self.average(Eout, band_lo, band_hi, integrand, n_v * n_in)
+
+        Eo_c, vv_c, Ei_c = jnp.meshgrid(Eout, vvec, Ein, indexing="ij")
+        mu = jnp.clip(col.mu_out(self.A, Ei_c, Eo_c, -vv_c), -1.0, 1.0)
+        return M, mu
+
+
 @eqx.filter_jit
 def dNdE_integral(dNdEdmu, rhoL_asym, I_E, Ein):
     return jnp.trapezoid(dNdEdmu * rhoL_asym * I_E[None, :], Ein, axis=1)
+
+
+@eqx.filter_jit
+def dNdE_bin_integral(dNdEdmu, rhoL_asym, I_E, dEin):
+    return jnp.sum(dNdEdmu * rhoL_asym * I_E[None, :] * dEin[None, :], axis=1)
 
 
 @eqx.filter_jit
@@ -102,6 +278,11 @@ def n2n_dNdE_integral(rgrid, rhoL_asym, n2n_mu, I_E, Ein):
 @eqx.filter_jit
 def primspec_integral(rhoL_mult, full_scattering_M, I_E, Ein):
     return jnp.trapezoid(rhoL_mult * full_scattering_M * I_E[None, None, :], Ein, axis=2)
+
+
+@eqx.filter_jit
+def primspec_bin_integral(rhoL_mult, full_scattering_M, I_E, dEin):
+    return jnp.sum(rhoL_mult * full_scattering_M * I_E[None, None, :] * dEin[None, None, :], axis=2)
 
 
 @eqx.filter_jit
@@ -162,8 +343,6 @@ class material_data:
                 legendre=tuple(self.legendre_dx_spline) if self.elastic_legendre else None,
                 SDX=self.elastic_SDX_table,
             )
-            self.elastic_kernel = ElasticScatterKernel(A=self.A, dxs=self.elastic_dxs)
-            self.ion_kinematic_kernel = IonKinematicScatterKernel(A=self.A, dxs=self.elastic_dxs)
 
         self.l_n2n = ENDF_data["interactions"].n2n
         if ENDF_data["interactions"].n2n:
@@ -187,7 +366,7 @@ class material_data:
             self.inelastic_legendre = []
             self.legendre_idx_spline = []
             self.inelastic_SDX_table = []
-            self.inelastic_kernel = []
+            self.inelastic_dxs = []
 
             for i_inelastic in range(self.n_inelastic):
                 xsec_table = ENDF_data[f"inelastic_xsec_n{i_inelastic + 1}"]
@@ -219,23 +398,21 @@ class material_data:
                     self.legendre_idx_spline.append(None)
                     self.inelastic_SDX_table.append(dxsec_table["SDX"])
 
-                self.inelastic_kernel.append(
-                    InelasticScatterKernel(
-                        A=self.A,
-                        Q=self.inelasticQ[i_inelastic],
-                        dxs=xs.DifferentialCrossSection(
-                            sigma=self.isigma[i_inelastic],
-                            legendre=tuple(self.legendre_idx_spline[i_inelastic])
-                            if self.inelastic_legendre[i_inelastic]
-                            else None,
-                            SDX=self.inelastic_SDX_table[i_inelastic],
-                        ),
+                self.inelastic_dxs.append(
+                    xs.DifferentialCrossSection(
+                        sigma=self.isigma[i_inelastic],
+                        legendre=tuple(self.legendre_idx_spline[i_inelastic])
+                        if self.inelastic_legendre[i_inelastic]
+                        else None,
+                        SDX=self.inelastic_SDX_table[i_inelastic],
                     )
                 )
 
         self.Ein = None
         self.Eout = None
         self.vvec = None
+        self.bin_average = False
+        self.bin_average_N = 1
 
     ############################################
     # Stationary ion scattered spectral shapes #
@@ -245,7 +422,9 @@ class material_data:
         self.Eout = Eout
         self.Ein = Ein
 
-    def init_station_scatter_matrices(self, Nm=100):
+    def init_station_scatter_matrices(self, Nm=100, bin_average=False, bin_average_N=1):
+        self.bin_average = bin_average
+        self.bin_average_N = bin_average_N
         self.init_station_elastic_scatter()
         if self.l_n2n:
             self.init_n2n_ddxs(Nm)
@@ -254,7 +433,11 @@ class material_data:
 
     # Elastic scatter matrix
     def init_station_elastic_scatter(self):
-        self.elastic_mu0, self.elastic_dNdEdmu = self.elastic_kernel(jnp.asarray(self.Ein), jnp.asarray(self.Eout))
+        if self.bin_average:
+            kernel = BinAveragedElasticScatterKernel(A=self.A, dxs=self.elastic_dxs, N=self.bin_average_N)
+        else:
+            kernel = ElasticScatterKernel(A=self.A, dxs=self.elastic_dxs)
+        self.elastic_mu0, self.elastic_dNdEdmu = kernel(jnp.asarray(self.Ein), jnp.asarray(self.Eout))
 
     # Inelastic scatter matrix
     # Currently uses classical kinematics
@@ -262,7 +445,12 @@ class material_data:
         self.inelastic_mu0 = []
         self.inelastic_dNdEdmu = []
         for i_inelastic in range(self.n_inelastic):
-            mu0, dNdEdmu = self.inelastic_kernel[i_inelastic](jnp.asarray(self.Ein), jnp.asarray(self.Eout))
+            Q, dxs = self.inelasticQ[i_inelastic], self.inelastic_dxs[i_inelastic]
+            if self.bin_average:
+                kernel = BinAveragedInelasticScatterKernel(A=self.A, Q=Q, dxs=dxs, N=self.bin_average_N)
+            else:
+                kernel = InelasticScatterKernel(A=self.A, Q=Q, dxs=dxs)
+            mu0, dNdEdmu = kernel(jnp.asarray(self.Ein), jnp.asarray(self.Eout))
             self.inelastic_mu0.append(mu0)
             self.inelastic_dNdEdmu.append(dNdEdmu)
 
@@ -280,15 +468,23 @@ class material_data:
     # Spectrum produced by scattering of incoming isotropic neutron source I_E with normalised areal density asymmetry rhoR_asym_func
     def calc_station_elastic_dNdE(self, I_E, rhoL_func):
         rhoL_asym = rhoL_func(self.elastic_mu0)
-        self.elastic_dNdE = dNdE_integral(self.elastic_dNdEdmu, rhoL_asym, I_E, jnp.asarray(self.Ein))
+        # A bin averaged matrix is contracted as a bin sum, not trapezoided
+        if self.bin_average:
+            _, dEin = energy_bin_edges(jnp.asarray(self.Ein))
+            self.elastic_dNdE = dNdE_bin_integral(self.elastic_dNdEdmu, rhoL_asym, I_E, dEin)
+        else:
+            self.elastic_dNdE = dNdE_integral(self.elastic_dNdEdmu, rhoL_asym, I_E, jnp.asarray(self.Ein))
 
     def calc_station_inelastic_dNdE(self, I_E, rhoL_func):
         self.inelastic_dNdE = jnp.zeros(self.Eout.shape[0])
+        _, dEin = energy_bin_edges(jnp.asarray(self.Ein))
         for i_inelastic in range(self.n_inelastic):
             rhoL_asym = rhoL_func(self.inelastic_mu0[i_inelastic])
-            self.inelastic_dNdE += dNdE_integral(
-                self.inelastic_dNdEdmu[i_inelastic], rhoL_asym, I_E, jnp.asarray(self.Ein)
-            )
+            dNdEdmu = self.inelastic_dNdEdmu[i_inelastic]
+            if self.bin_average:
+                self.inelastic_dNdE += dNdE_bin_integral(dNdEdmu, rhoL_asym, I_E, dEin)
+            else:
+                self.inelastic_dNdE += dNdE_integral(dNdEdmu, rhoL_asym, I_E, jnp.asarray(self.Ein))
 
     def calc_n2n_dNdE(self, I_E, rhoL_func):
         rhoL_asym = rhoL_func(self.n2n_mu)
@@ -319,10 +515,14 @@ class material_data:
     #####################################################
     # Inclusion of ion velocities to scattering kernels #
     #####################################################
-    def full_scattering_matrix_create(self, vvec):
+    def full_scattering_matrix_create(self, vvec, bin_average_N=1):
         self.vvec = vvec
 
-        self.full_scattering_M, self.full_scattering_mu = self.ion_kinematic_kernel(
+        if self.bin_average:
+            kernel = BinAveragedIonKinematicScatterKernel(A=self.A, dxs=self.elastic_dxs, N=bin_average_N)
+        else:
+            kernel = IonKinematicScatterKernel(A=self.A, dxs=self.elastic_dxs)
+        self.full_scattering_M, self.full_scattering_mu = kernel(
             jnp.asarray(self.Eout), jnp.asarray(vvec), jnp.asarray(self.Ein)
         )
         self.rhoL_mult = jnp.ones_like(self.full_scattering_mu)
@@ -333,7 +533,11 @@ class material_data:
 
     # Integrate out the birth neutron spectrum
     def matrix_primspec_int(self, I_E):
-        self.M_prim = primspec_integral(self.rhoL_mult, self.full_scattering_M, I_E, jnp.asarray(self.Ein))
+        if self.bin_average:
+            _, dEin = energy_bin_edges(jnp.asarray(self.Ein))
+            self.M_prim = primspec_bin_integral(self.rhoL_mult, self.full_scattering_M, I_E, dEin)
+        else:
+            self.M_prim = primspec_integral(self.rhoL_mult, self.full_scattering_M, I_E, jnp.asarray(self.Ein))
 
     # Integrate out the ion velocity distribution
     def matrix_interpolate_gaussian(self, E, vbar, dv):
