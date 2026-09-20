@@ -235,3 +235,51 @@ def midpoint_subnodes(lo, hi, N):
     width = (hi - lo) / N
     offsets = jnp.arange(N) + 0.5
     return lo[..., None] + offsets * width[..., None], width
+
+
+# Elements per tile when the outgoing energy axis is blocked.  The bin averaged
+# kernels are memory bandwidth bound, so evaluating the whole outgoing grid at
+# once is both the largest allocation and the slowest option once a bin carries
+# sub-nodes.  Half a million elements keeps a tile near cache and was the best
+# compromise measured across the elastic and ion velocity kernels.
+TILE_ELEMENTS = 1 << 19
+
+
+def integrate_sub_nodes(sub_node, zero, N):
+    """Sum a sub-node integrand, scanning rather than materialising all N of them
+
+    Args:
+        sub_node (callable): the integrand at sub-node index k
+        zero (array): accumulator of the shape sub_node returns
+        N (int): number of sub-nodes
+
+    Returns:
+        array: the summed integrand
+    """
+    if N == 1:
+        return sub_node(0)
+    total, _ = jax.lax.scan(lambda acc, k: (acc + sub_node(k), None), zero, jnp.arange(N))
+    return total
+
+
+def map_outgoing_bins(outgoing_bin, Eout_edges, row_elements, N):
+    """Apply outgoing_bin over the outgoing grid, blocking it when a tile is large
+
+    Blocking only pays once a bin carries sub-nodes.  At N = 1 evaluating the
+    whole grid at once is already minimal and chunking just adds overhead.
+
+    Args:
+        outgoing_bin (callable): maps one (lower, upper) edge pair to its row
+        Eout_edges (array): outgoing bin edges
+        row_elements (int): elements one row of the result works over
+        N (int): sub-nodes per bin
+
+    Returns:
+        array: the rows stacked along the outgoing axis
+    """
+    edges = (Eout_edges[:-1], Eout_edges[1:])
+    n_out = Eout_edges.shape[0] - 1
+    batch = max(1, TILE_ELEMENTS // max(row_elements, 1))
+    if N == 1 or batch >= n_out:
+        return jax.vmap(outgoing_bin)(edges)
+    return jax.lax.map(outgoing_bin, edges, batch_size=batch)
