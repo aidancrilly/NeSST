@@ -64,46 +64,71 @@ def affine_muc_band(muc_of_Eout, Eprobe):
     return jnp.minimum(edge_a, edge_b), jnp.maximum(edge_a, edge_b), mu_probe, slope
 
 
-class BinAveragedElasticScatterKernel(eqx.Module):
-    """Elastic scattering kernel bin averaged over the energy grids"""
+class BinAveragedScatterKernel(eqx.Module):
+    """Shared machinery for the bin averaged kernels
+
+    A subclass says where the kinematically allowed band is and what the
+    integrand is on it; averaging that over the energy bins is the same work
+    whatever the interaction.
+    """
 
     A: float
     dxs: xs.DifferentialCrossSection
     # Midpoint sub-divisions per bin; the band edges are exact even at N = 1
     N: int = eqx.field(static=True)
 
-    @eqx.filter_jit
-    def __call__(self, Ein, Eout):
+    def sub_nodes(self, Ein):
+        """Incoming sub-nodes, flattened so the incoming axis is last as the
+        differential cross section evaluators expect"""
         Ein_edges, _ = energy_bin_edges(Ein)
+        Ei_sub, _ = midpoint_subnodes(Ein_edges[:-1], Ein_edges[1:], self.N)
+        return Ei_sub.reshape(-1)
+
+    def average(self, Eout, band_lo, band_hi, integrand, row_elements):
+        """Average integrand over each outgoing bin's overlap with the band
+
+        Args:
+            Eout (array): outgoing bin centres
+            band_lo, band_hi (array): kinematic band limits per incoming sub-node
+            integrand (callable): the integrand at an outgoing energy
+            row_elements (int): elements one outgoing row works over
+
+        Returns:
+            array: the bin averaged kernel, outgoing axis first
+        """
         Eout_edges, dEout = energy_bin_edges(Eout)
 
-        # Incoming sub-nodes, flattened so the incoming axis is last as the
-        # differential cross section evaluators expect
-        Ei_sub, _ = midpoint_subnodes(Ein_edges[:-1], Ein_edges[1:], self.N)
-        Ev = Ei_sub.reshape(-1)
-
-        # Linearise about forward scatter, where mu_c is exactly +1
-        band_lo, band_hi, mu_probe, slope = affine_muc_band(lambda Eo: col.muc(self.A, Ev, Eo, 1.0, -1.0, 0.0), Ev)
-
         def outgoing_bin(edges):
-            # Overlap of the kinematically allowed band with this outgoing bin
             lo = jnp.maximum(edges[0], band_lo)
             hi = jnp.minimum(edges[1], band_hi)
             sub_width = (hi - lo) / self.N
             weight = jnp.where(hi > lo, sub_width, 0.0)
 
             def sub_node(k):
-                # Evaluating mu_c through the linearisation rather than col.muc
-                # also avoids its removable singularity at Eout -> 0 for A = 1
-                Eo = lo + (k + 0.5) * sub_width
-                muc = mu_probe + slope * (Eo - Ev)
-                return slope * self.dxs(Ev, muc, Ev)
+                return integrand(lo + (k + 0.5) * sub_width)
 
-            # Integrate over the outgoing bin, then average over the incoming bin
             inner = integrate_sub_nodes(sub_node, jnp.zeros_like(lo), self.N) * weight
-            return inner.reshape(-1, self.N).mean(axis=1)
+            return inner.reshape(*inner.shape[:-1], -1, self.N).mean(axis=-1)
 
-        dNdEdmu = map_outgoing_bins(outgoing_bin, Eout_edges, Ev.shape[0], self.N) / dEout[:, None]
+        out = map_outgoing_bins(outgoing_bin, Eout_edges, row_elements, self.N)
+        return out / dEout.reshape(-1, *([1] * (out.ndim - 1)))
+
+
+class BinAveragedElasticScatterKernel(BinAveragedScatterKernel):
+    """Elastic scattering kernel bin averaged over the energy grids"""
+
+    @eqx.filter_jit
+    def __call__(self, Ein, Eout):
+        Ev = self.sub_nodes(Ein)
+        # Linearise about forward scatter, where mu_c is exactly +1
+        band_lo, band_hi, mu_probe, slope = affine_muc_band(lambda Eo: col.muc(self.A, Ev, Eo, 1.0, -1.0, 0.0), Ev)
+
+        def integrand(Eo):
+            # Evaluating mu_c through the linearisation rather than col.muc also
+            # avoids its removable singularity at Eout -> 0 for A = 1
+            return slope * self.dxs(Ev, mu_probe + slope * (Eo - Ev), Ev)
+
+        dNdEdmu = self.average(Eout, band_lo, band_hi, integrand, Ev.shape[0])
 
         # mu0 stays a point value per bin pair, clipped so that an edge bin with
         # a non-zero bin average cannot hand rhoL_func an out of range cosine
@@ -137,22 +162,14 @@ class InelasticScatterKernel(eqx.Module):
         return mu0, dNdEdmu
 
 
-class BinAveragedInelasticScatterKernel(eqx.Module):
+class BinAveragedInelasticScatterKernel(BinAveragedScatterKernel):
     """Inelastic scattering kernel bin averaged over the energy grids"""
 
-    A: float
     Q: float
-    dxs: xs.DifferentialCrossSection
-    N: int = eqx.field(static=True)
 
     @eqx.filter_jit
     def __call__(self, Ein, Eout):
-        Ein_edges, _ = energy_bin_edges(Ein)
-        Eout_edges, dEout = energy_bin_edges(Eout)
-
-        Ei_sub, _ = midpoint_subnodes(Ein_edges[:-1], Ein_edges[1:], self.N)
-        Ev = Ei_sub.reshape(-1)
-
+        Ev = self.sub_nodes(Ein)
         kin_a2 = (self.A / (self.A + 1)) ** 2 * (1.0 + (self.A + 1) / self.A * self.Q / Ev)
         open_channel = kin_a2 >= 0.0
         kin_a = jnp.sqrt(jnp.where(open_channel, kin_a2, 1.0))
@@ -165,21 +182,10 @@ class BinAveragedInelasticScatterKernel(eqx.Module):
         band_lo = jnp.where(open_channel, band_lo, 0.0)
         band_hi = jnp.where(open_channel, band_hi, 0.0)
 
-        def outgoing_bin(edges):
-            lo = jnp.maximum(edges[0], band_lo)
-            hi = jnp.minimum(edges[1], band_hi)
-            sub_width = (hi - lo) / self.N
-            weight = jnp.where(hi > lo, sub_width, 0.0)
+        def integrand(Eo):
+            return jnp.where(open_channel, slope * self.dxs(Ev, mu_probe + slope * (Eo - Ev), Ev), 0.0)
 
-            def sub_node(k):
-                Eo = lo + (k + 0.5) * sub_width
-                muc = mu_probe + slope * (Eo - Ev)
-                return jnp.where(open_channel, slope * self.dxs(Ev, muc, Ev), 0.0)
-
-            inner = integrate_sub_nodes(sub_node, jnp.zeros_like(lo), self.N) * weight
-            return inner.reshape(-1, self.N).mean(axis=1)
-
-        dNdEdmu = map_outgoing_bins(outgoing_bin, Eout_edges, Ev.shape[0], self.N) / dEout[:, None]
+        dNdEdmu = self.average(Eout, band_lo, band_hi, integrand, Ev.shape[0])
 
         Ei, Eo = jnp.meshgrid(Ein, Eout)
         kin_a2_c = (self.A / (self.A + 1)) ** 2 * (1.0 + (self.A + 1) / self.A * self.Q / Ei)
@@ -209,26 +215,17 @@ class IonKinematicScatterKernel(eqx.Module):
         return flux_change * dsigdOmega * jacob, muout
 
 
-class BinAveragedIonKinematicScatterKernel(eqx.Module):
+class BinAveragedIonKinematicScatterKernel(BinAveragedScatterKernel):
     """Ion velocity elastic scattering kernel bin averaged over the energy grids
 
     The jacobian carries the moving target flux correction, so it is no longer
     the slope of mu_c and is kept explicit.
     """
 
-    A: float
-    dxs: xs.DifferentialCrossSection
-    N: int = eqx.field(static=True)
-
     @eqx.filter_jit
     def __call__(self, Eout, vvec, Ein):
-        Ein_edges, _ = energy_bin_edges(Ein)
-        Eout_edges, dEout = energy_bin_edges(Eout)
-
-        Ei_sub, _ = midpoint_subnodes(Ein_edges[:-1], Ein_edges[1:], self.N)
-        Ev = Ei_sub.reshape(-1)
+        Ev = self.sub_nodes(Ein)
         n_v, n_in = vvec.shape[0], Ev.shape[0]
-
         # Reverse velocity direction so +ve vf is implosion
         vf = -vvec[:, None]
         Eiv = jnp.broadcast_to(Ev[None, :], (n_v, n_in))
@@ -236,27 +233,16 @@ class BinAveragedIonKinematicScatterKernel(eqx.Module):
         band_lo, band_hi, _, _ = affine_muc_band(
             lambda Eo: col.muc(self.A, Eiv, Eo, 1.0, col.mu_out(self.A, Eiv, Eo, vf), vf), Eiv
         )
-
         flux_change = col.flux_change(Ev, 1.0, vf)
 
-        def outgoing_bin(edges):
-            lo = jnp.maximum(edges[0], band_lo)
-            hi = jnp.minimum(edges[1], band_hi)
-            sub_width = (hi - lo) / self.N
-            weight = jnp.where(hi > lo, sub_width, 0.0)
+        def integrand(Eo):
+            muout = col.mu_out(self.A, Ev, Eo, vf)
+            jacob = col.g(self.A, Ev, Eo, 1.0, muout, vf)
+            # Integrand of Eq. 8 in A. J. Crilly 2019 PoP
+            dsigdOmega = xs.dsigdOmega(self.A, Ev, Eo, Ev, 1.0, muout, vf, self.dxs)
+            return flux_change * dsigdOmega * jacob
 
-            def sub_node(k):
-                Eo = lo + (k + 0.5) * sub_width
-                muout = col.mu_out(self.A, Ev, Eo, vf)
-                jacob = col.g(self.A, Ev, Eo, 1.0, muout, vf)
-                # Integrand of Eq. 8 in A. J. Crilly 2019 PoP
-                dsigdOmega = xs.dsigdOmega(self.A, Ev, Eo, Ev, 1.0, muout, vf, self.dxs)
-                return flux_change * dsigdOmega * jacob
-
-            inner = integrate_sub_nodes(sub_node, jnp.zeros_like(lo), self.N) * weight
-            return inner.reshape(n_v, -1, self.N).mean(axis=2)
-
-        M = map_outgoing_bins(outgoing_bin, Eout_edges, n_v * n_in, self.N) / dEout[:, None, None]
+        M = self.average(Eout, band_lo, band_hi, integrand, n_v * n_in)
 
         Eo_c, vv_c, Ei_c = jnp.meshgrid(Eout, vvec, Ein, indexing="ij")
         mu = jnp.clip(col.mu_out(self.A, Ei_c, Eo_c, -vv_c), -1.0, 1.0)

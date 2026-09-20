@@ -77,8 +77,9 @@ def QBrysk(Ein: npt.NDArray, mean: float, variance: float, bin_average: bool = F
     if bin_average:
         edges, widths = Ecentres_to_edges(Ein)
         cdf = 0.5 * (1.0 + erf((np.asarray(edges) - mean) / np.sqrt(2.0 * variance)))
-        return np.diff(cdf) / np.asarray(widths)
-    spec = np.exp(-((Ein - mean) ** 2) / 2.0 / variance) / np.sqrt(2 * np.pi * variance)
+        spec = np.diff(cdf) / np.asarray(widths)
+    else:
+        spec = np.exp(-((Ein - mean) ** 2) / 2.0 / variance) / np.sqrt(2 * np.pi * variance)
     return spec
 
 
@@ -109,8 +110,9 @@ def QBallabio(Ein: npt.NDArray, mean: float, variance: float, bin_average: bool 
         k = 2.0 * Ebar / sig2
         # antiderivative of 2 u exp(-k (u - u0)^2) with respect to u
         antideriv = -np.exp(-k * (u - u0) ** 2) / k + u0 * np.sqrt(np.pi / k) * erf(np.sqrt(k) * (u - u0))
-        return np.diff(antideriv) / np.asarray(widths) / norm
-    spec = np.exp(-2.0 * Ebar * (np.sqrt(Ein) - np.sqrt(Ebar)) ** 2 / sig2) / norm
+        spec = np.diff(antideriv) / np.asarray(widths) / norm
+    else:
+        spec = np.exp(-2.0 * Ebar * (np.sqrt(Ein) - np.sqrt(Ebar)) ** 2 / sig2) / norm
     return spec
 
 
