@@ -48,7 +48,15 @@ def affine_muc_band(muc_of_Eout, Eprobe):
     """Linearise the centre of mass cosine in Eout and invert it for mu_c = +-1
 
     mu_c is affine in Eout at fixed incoming energy, so this transform gives the
-    Heaviside limits to integrate over the energy bins.
+    Heaviside limits to integrate over the energy bins.  With the incoming
+    neutron collinear with the target the boost axis lies along it, so the
+    centre of mass scattering angle is the angle to that axis and the boost
+    back gives Eout = gamma_c (E* + beta_c p* mu_c), linear in mu_c.
+
+    The slope here is the total derivative along the locus where the outgoing
+    lab direction follows Eout.  For a target at rest that is also the slowing
+    down kernel col.g, but for a moving target col.g is the partial derivative
+    at fixed outgoing lab direction and the two differ by a few percent.
 
     Args:
         muc_of_Eout (callable): mu_c as a function of outgoing energy alone
@@ -218,8 +226,10 @@ class IonKinematicScatterKernel(eqx.Module):
 class BinAveragedIonKinematicScatterKernel(BinAveragedScatterKernel):
     """Ion velocity elastic scattering kernel bin averaged over the energy grids
 
-    The jacobian carries the moving target flux correction, so it is no longer
-    the slope of mu_c and is kept explicit.
+    col.g is the jacobian the double differential cross section needs, the
+    partial derivative of mu_c at fixed outgoing lab direction, which is not the
+    slope of the linearisation once the target moves.  So the linearisation
+    supplies the band limits only and the jacobian stays explicit.
     """
 
     @eqx.filter_jit

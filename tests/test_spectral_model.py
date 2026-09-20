@@ -349,3 +349,43 @@ def test_double_scatter_error_does_not_compound(carbon):
     bin_averaged = rel(_scatter_twice(carbon, E, True, N=4))
 
     assert bin_averaged < pointwise / 5.0
+
+
+@pytest.mark.parametrize("vf", [0.0, 4.0e5, -8.0e5])
+def test_slowing_down_kernel_is_the_partial_derivative(vf):
+    """col.g is d mu_c / d Eout at fixed outgoing lab direction, not the total
+    derivative along the locus where that direction follows Eout.  The two
+    coincide only for a target at rest, which is why the bin averaged elastic
+    kernel may use the linearisation slope as its jacobian and the ion velocity
+    one may not."""
+    import jax
+
+    A, Ein, Eout = 2.9896, 14.1e6, jnp.asarray(7.05e6)
+    muout = col.mu_out(A, Ein, Eout, vf)
+    g = col.g(A, Ein, Eout, 1.0, muout, vf)
+
+    partial = jax.grad(lambda E: col.muc(A, Ein, E, 1.0, muout, vf))(Eout)
+    total = jax.grad(lambda E: col.muc(A, Ein, E, 1.0, col.mu_out(A, Ein, E, vf), vf))(Eout)
+
+    # the partial is col.g whatever the target does
+    np.testing.assert_allclose(float(partial), float(g), rtol=1e-10)
+    # the total only agrees when the target is at rest
+    if vf == 0.0:
+        np.testing.assert_allclose(float(total), float(g), rtol=1e-10)
+    else:
+        assert abs(float(total / g) - 1.0) > 1e-3
+
+
+@pytest.mark.parametrize("vf", [0.0, 4.0e5, -8.0e5])
+def test_muc_is_linear_in_outgoing_energy_for_a_moving_target(vf):
+    """The boost argument does not need the target at rest, only the incoming
+    neutron collinear with it, so the band limits stay exact for the ion
+    velocity kernel too"""
+    import jax
+
+    A, Ein = 2.9896, 14.1e6
+    slopes = [
+        float(jax.grad(lambda E: col.muc(A, Ein, E, 1.0, col.mu_out(A, Ein, E, vf), vf))(jnp.asarray(x)))
+        for x in (4.0e6, 8.0e6, 12.0e6)
+    ]
+    assert max(slopes) / min(slopes) - 1.0 < 1e-12
